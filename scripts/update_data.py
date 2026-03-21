@@ -251,13 +251,18 @@ def get_chatwork_messages(token: str, room_id: str) -> list:
         return []
 
 
+def sanitize(text: str) -> str:
+    """JSON埋め込み時に問題となる文字を除去"""
+    return text.replace('\\', '').replace('"', '').replace('\r', '').replace('\x00', '')
+
+
 def format_messages(msgs: list, room_name: str) -> str:
     """メッセージリストを分析用テキストに整形（直近50件）"""
     lines = [f'\n=== {room_name} ===']
     recent = msgs[-50:] if len(msgs) > 50 else msgs
     for msg in recent:
         dt = datetime.fromtimestamp(msg.get('send_time', 0), tz=JST)
-        body = msg.get('body', '').strip()
+        body = sanitize(msg.get('body', '').strip())
         if body:
             lines.append(f'[{dt.strftime("%m/%d %H:%M")}] {body}')
     return '\n'.join(lines)
@@ -345,7 +350,7 @@ JSONのみを返してください（コードブロック不要）。"""
     try:
         message = client.messages.create(
             model='claude-sonnet-4-6',
-            max_tokens=4000,
+            max_tokens=6000,
             messages=[{'role': 'user', 'content': prompt}]
         )
         text = message.content[0].text.strip()
