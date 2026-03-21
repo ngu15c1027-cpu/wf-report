@@ -344,6 +344,7 @@ def analyze_with_claude(financials: dict, chatwork_logs: dict, month_str: str) -
 ---
 代表者が毎朝確認する経営レポートとして、以下のJSON形式で返してください。
 日本語で、具体的・実践的に記述してください。数値・人名・出来事を積極的に使ってください。
+【重要】各テキスト項目は80字以内に収めてください。JSONが途中で切れないよう簡潔に記述してください。
 
 {{
   "overallSummary": "全社経営状況の総括（200字程度）",
@@ -394,7 +395,7 @@ JSONのみを返してください（コードブロック不要）。"""
     try:
         message = client.messages.create(
             model='claude-sonnet-4-6',
-            max_tokens=6000,
+            max_tokens=8192,
             messages=[{'role': 'user', 'content': prompt}]
         )
         text = message.content[0].text.strip()
