@@ -563,12 +563,15 @@ function renderSales(d) {
 
   // 事業別詳細テーブル
   html += '<div class="sales-table-wrap"><table class="sales-table">'
-    + '<tr><th>事業</th><th>売上</th><th>経費合計</th><th>粗利</th><th>粗利率</th><th>営業利益</th><th>営業利益率</th></tr>';
+    + '<tr><th>事業</th><th>売上</th><th>労務費</th><th>固定費</th><th>変動費</th><th>経費合計</th><th>粗利</th><th>粗利率</th><th>営業利益</th><th>営業利益率</th></tr>';
   bizs.forEach(function(b) {
     var s = b.sales || {};
     html += '<tr>'
       + '<td><span class="biz-badge" style="background:' + b.color + '20;color:' + b.color + '">' + esc(b.name) + '</span></td>'
       + '<td>' + fmtY(s.revenue) + '</td>'
+      + '<td>' + fmtY(s.laborCost) + '</td>'
+      + '<td>' + fmtY(s.fixedCost) + '</td>'
+      + '<td>' + fmtY(s.variableCost) + '</td>'
       + '<td>' + fmtY(s.expenses) + '</td>'
       + '<td>' + fmtY(s.grossProfit) + '</td>'
       + '<td>' + (s.grossProfitRate||0) + '%</td>'
@@ -576,9 +579,25 @@ function renderSales(d) {
       + '<td>' + (s.opProfitRate||0) + '%</td>'
       + '</tr>';
   });
+  // 運営経費（全社共通）行
+  var opsFixed    = ov.opsFixedCost    || 0;
+  var opsVariable = ov.opsVariableCost || 0;
+  var opsLabor    = ov.opsLaborCost    || 0;
+  if (opsFixed || opsVariable || opsLabor) {
+    html += '<tr style="background:#fffbeb;font-style:italic;color:var(--text-light)">'
+      + '<td>運営経費（全社）</td>'
+      + '<td>—</td>'
+      + '<td>' + fmtY(opsLabor) + '</td>'
+      + '<td>' + fmtY(opsFixed) + '</td>'
+      + '<td>' + fmtY(opsVariable) + '</td>'
+      + '<td>' + fmtY(opsFixed + opsVariable + opsLabor) + '</td>'
+      + '<td colspan="4" style="color:var(--text-light);font-size:12px">全事業共通の運営コスト</td>'
+      + '</tr>';
+  }
   html += '<tr class="total-row">'
     + '<td>全社合計</td>'
     + '<td>' + fmtY(ov.totalRevenue) + '</td>'
+    + '<td colspan="3">—</td>'
     + '<td>' + fmtY(ov.totalExpenses) + '</td>'
     + '<td>' + fmtY(ov.grossProfit) + '</td>'
     + '<td>' + (ov.grossProfitRate||0) + '%</td>'
@@ -586,45 +605,23 @@ function renderSales(d) {
     + '<td>' + (ov.opProfitRate||0) + '%</td>'
     + '</tr></table></div>';
 
-  // 年間想定セクション
-  var annualTotal = ov.totalRevenueAnnual || 0;
-  if (annualTotal > 0) {
-    html += '<div class="rev-chart" style="margin-top:16px">'
-      + '<div class="rev-chart-title">📅 年間想定売上（スプレッドシート見込み含む）</div>';
-
-    // 全社進捗バー
-    var ytdPct = annualTotal > 0 ? Math.min(100, Math.round(ov.totalRevenue / annualTotal * 100)) : 0;
-    html += '<div style="margin-bottom:16px;padding:16px;background:var(--primary-light);border-radius:10px">'
-      + '<div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:6px">'
-      + '<span style="font-weight:700;color:var(--primary)">全社年間想定売上</span>'
-      + '<span style="color:var(--text-light)">' + fmtY(ov.totalRevenue) + ' / ' + fmtY(annualTotal) + '</span>'
-      + '</div>'
-      + '<div class="rev-bar-track" style="height:14px">'
-      + '<div class="rev-bar-fill" style="width:' + ytdPct + '%;background:var(--primary)"></div>'
-      + '</div>'
-      + '<div style="font-size:11px;color:var(--text-light);margin-top:4px">進捗 ' + ytdPct + '% ／ 年間純利益想定: ' + fmtY(ov.opProfitAnnual) + '</div>'
-      + '</div>';
-
-    // 事業別年間想定バー
-    var maxAnnual = Math.max.apply(null, bizs.map(function(b){ return (b.sales||{}).revenueAnnual || 0; })) || 1;
+  // 月別実績・見込みテーブル
+  var ovMonthly = ov.monthly || [];
+  if (ovMonthly.length) {
+    html += '<div style="margin-top:8px"><div class="biz-tabs" id="monthlyTabs">';
+    html += '<div class="biz-tab active" style="background:var(--primary);border-color:var(--primary);color:white"'
+      + ' onclick="switchTab(this,\'monthly-overall\',\'monthlyTabs\')">全社</div>';
     bizs.forEach(function(b) {
-      var s = b.sales || {};
-      var annual = s.revenueAnnual || 0;
-      if (annual === 0) return;
-      var cur = s.revenue || 0;
-      var pct = Math.round(annual / maxAnnual * 100);
-      var prog = Math.min(100, Math.round(cur / annual * 100));
-      html += '<div class="rev-bar-row">'
-        + '<div class="rev-bar-label">'
-        + '<span class="biz-name" style="color:' + b.color + '">' + esc(b.name) + '</span>'
-        + '<span class="biz-amt" style="font-size:12px">'
-        + fmtY(cur) + ' / ' + fmtY(annual) + '（進捗' + prog + '%）'
-        + '</span>'
-        + '</div>'
-        + '<div class="rev-bar-track">'
-        + '<div class="rev-bar-fill" style="width:' + pct + '%;background:' + b.color + '30"></div>'
-        + '<div class="rev-bar-fill" style="width:' + Math.round(cur/annual*pct) + '%;background:' + b.color + ';margin-top:-10px"></div>'
-        + '</div></div>';
+      html += '<div class="biz-tab" onclick="switchTab(this,\'monthly-' + b.id + '\',\'monthlyTabs\')">'
+        + esc(b.name) + '</div>';
+    });
+    html += '</div>';
+
+    html += '<div class="biz-tab-content active" id="monthly-overall">'
+      + mkMonthlyTable(ovMonthly) + '</div>';
+    bizs.forEach(function(b) {
+      html += '<div class="biz-tab-content" id="monthly-' + b.id + '">'
+        + mkMonthlyTable((b.sales||{}).monthly||[]) + '</div>';
     });
     html += '</div>';
   }
@@ -867,6 +864,28 @@ function mkCard(cls, title, items) {
     + '<div class="card-title">' + title + '</div>'
     + '<ul>' + lis + '</ul></div>';
 }
+function mkMonthlyTable(monthly) {
+  if (!monthly || !monthly.length) return '<div class="no-data">データがありません</div>';
+  var html = '<div class="sales-table-wrap"><table class="sales-table">'
+    + '<tr><th style="text-align:left">月</th><th>売上</th><th>営業利益</th><th>営業利益率</th><th>区分</th></tr>';
+  monthly.forEach(function(m) {
+    var forecast = m.isForecast;
+    var rowStyle = forecast ? 'color:var(--text-light)' : '';
+    var badge = forecast
+      ? '<span style="font-size:11px;background:#fef3c7;color:#92400e;padding:2px 7px;border-radius:5px;font-weight:700">見込み</span>'
+      : '<span style="font-size:11px;background:#dcfce7;color:#166534;padding:2px 7px;border-radius:5px;font-weight:700">実績</span>';
+    html += '<tr style="' + rowStyle + '">'
+      + '<td style="font-weight:700;text-align:left">' + m.label + '</td>'
+      + '<td>' + (m.revenue ? fmtY(m.revenue) : '—') + '</td>'
+      + '<td>' + (m.opProfit ? fmtY(m.opProfit) : '—') + '</td>'
+      + '<td>' + (m.opProfitRate ? m.opProfitRate + '%' : '—') + '</td>'
+      + '<td>' + badge + '</td>'
+      + '</tr>';
+  });
+  html += '</table></div>';
+  return html;
+}
+
 function fmtY(n) {
   if (!n) return '¥0';
   if (n >= 1000000) return '¥' + (n/10000).toFixed(0) + '万';
