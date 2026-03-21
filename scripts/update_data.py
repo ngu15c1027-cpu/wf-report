@@ -349,10 +349,18 @@ JSONのみを返してください（コードブロック不要）。"""
             messages=[{'role': 'user', 'content': prompt}]
         )
         text = message.content[0].text.strip()
-        # JSONブロック抽出
-        m = re.search(r'\{.*\}', text, re.DOTALL)
-        if m:
-            return json.loads(m.group())
+        # コードブロック除去
+        text = re.sub(r'^```(?:json)?\s*', '', text)
+        text = re.sub(r'\s*```$', '', text)
+        # JSONブロック抽出（最初の { から最後の } まで）
+        start = text.find('{')
+        end = text.rfind('}')
+        if start != -1 and end != -1:
+            json_str = text[start:end+1]
+            return json.loads(json_str)
+    except json.JSONDecodeError as e:
+        print(f'[ERROR] Claude API JSON parse: {e}')
+        print(f'[DEBUG] Response text (first 500 chars): {text[:500]}')
     except Exception as e:
         print(f'[ERROR] Claude API: {e}')
 
