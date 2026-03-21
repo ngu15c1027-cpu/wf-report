@@ -286,10 +286,14 @@ def analyze_with_claude(financials: dict, chatwork_logs: dict, month_str: str) -
         bid = biz['id']
         f = financials.get(bid, {})
         ctx_lines.append(f"\n■ {biz['name']}")
-        ctx_lines.append(f"  売上: {f.get('revenue',0):,.0f}円 / 経費: {f.get('expenses',0):,.0f}円")
+        rev = f.get('revenue', 0)
+        var = f.get('variableCost', 0)
+        var_rate = round(var / rev * 100, 1) if rev > 0 else 0
+        ctx_lines.append(f"  売上: {rev:,.0f}円 / 経費合計: {f.get('expenses',0):,.0f}円")
         ctx_lines.append(f"  粗利: {f.get('grossProfit',0):,.0f}円 ({f.get('grossProfitRate',0):.1f}%)")
         ctx_lines.append(f"  営業利益: {f.get('opProfit',0):,.0f}円 ({f.get('opProfitRate',0):.1f}%)")
-        ctx_lines.append(f"  労務費: {f.get('laborCost',0):,.0f}円")
+        ctx_lines.append(f"  労務費: {f.get('laborCost',0):,.0f}円 / 固定費: {f.get('fixedCost',0):,.0f}円")
+        ctx_lines.append(f"  変動費（交通費・接待交際費等）: {var:,.0f}円（売上比 {var_rate}%）")
 
     ctx_lines.append('\n【Chatworkログ】')
     if chatwork_logs:
@@ -347,6 +351,12 @@ def analyze_with_claude(financials: dict, chatwork_logs: dict, month_str: str) -
     }}
   }}
 }}
+
+【変動費アラートの基準】
+変動費（交通費・接待交際費等）の売上比率が以下を超えた場合はrisksに必ず含めてください：
+- 売上比3%超：「変動費が売上の○%に達しています。内訳の確認と適正化を検討してください。」
+- 売上比5%超：「変動費が売上の○%と高水準です。緊急に支出内容を精査してください。」
+変動費が0円の場合はアラート不要です。
 
 staffStatusのstatusは "good"（良好）、"warning"（注意）、"concern"（要ケア）のいずれかを使ってください。
 Chatworkログからスタッフの発言・反応・態度などを読み取り、心理状況・モチベーションを推測してください。
