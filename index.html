@@ -1,0 +1,838 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>経営ダッシュボード</title>
+<style>
+:root {
+  --primary: #1a3a5c;
+  --primary-light: #e8f2ff;
+  --primary-dark: #0f2540;
+  --accent: #f59e0b;
+  --accent-light: #fffbeb;
+  --bg: #f5f7fa;
+  --card: #ffffff;
+  --text: #1e293b;
+  --text-light: #64748b;
+  --border: #e2e8f0;
+  --success: #16a34a;
+  --warning: #d97706;
+  --danger: #dc2626;
+  --shadow: 0 1px 6px rgba(0,0,0,0.07);
+  --radius: 14px;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Kaku Gothic ProN', 'Noto Sans JP', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.8;
+  font-size: 15px;
+}
+
+/* ---- Login Gate ---- */
+#loginScreen {
+  position: fixed; inset: 0; z-index: 9999;
+  background: linear-gradient(135deg, #0f2540 0%, #1a3a5c 50%, #1e4976 100%);
+  display: flex; align-items: center; justify-content: center;
+}
+.login-box {
+  background: white; border-radius: 20px;
+  padding: 48px 40px; width: 100%; max-width: 400px; text-align: center;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+}
+.login-logo {
+  width: 56px; height: 56px; background: var(--primary);
+  border-radius: 14px; display: flex; align-items: center;
+  justify-content: center; font-size: 26px; margin: 0 auto 20px;
+}
+.login-box h1 { font-size: 20px; font-weight: 800; color: var(--primary-dark); margin-bottom: 6px; }
+.login-box p  { font-size: 13px; color: var(--text-light); margin-bottom: 28px; }
+.login-input {
+  width: 100%; padding: 14px 18px; border: 2px solid var(--border);
+  border-radius: 10px; font-size: 16px; outline: none;
+  transition: border 0.2s; letter-spacing: 2px;
+  margin-bottom: 16px; color: var(--text);
+}
+.login-input:focus { border-color: var(--primary); }
+.login-btn {
+  width: 100%; padding: 14px; background: var(--primary);
+  color: white; border: none; border-radius: 10px;
+  font-size: 15px; font-weight: 700; cursor: pointer;
+  transition: background 0.2s;
+}
+.login-btn:hover { background: var(--primary-dark); }
+.login-error {
+  margin-top: 12px; color: var(--danger);
+  font-size: 13px; font-weight: 600; display: none;
+}
+
+/* ---- Dashboard ---- */
+#dashboard { display: none; }
+
+.header {
+  background: linear-gradient(135deg, #0f2540 0%, #1a3a5c 50%, #1e4976 100%);
+  color: white; padding: 48px 24px 40px; position: relative;
+}
+.header::after {
+  content: ''; position: absolute;
+  bottom: -20px; left: 0; right: 0;
+  height: 40px; background: var(--bg); border-radius: 20px 20px 0 0;
+}
+.header-inner { max-width: 960px; margin: 0 auto; }
+.header-badge {
+  display: inline-block; background: rgba(255,255,255,0.15);
+  border: 1px solid rgba(255,255,255,0.3);
+  padding: 4px 16px; border-radius: 100px;
+  font-size: 12px; margin-bottom: 16px;
+}
+.header h1 { font-size: clamp(22px,4vw,34px); font-weight: 800; line-height: 1.3; margin-bottom: 8px; }
+.header p  { font-size: 15px; opacity: 0.85; }
+.header-date { margin-top: 16px; font-size: 13px; opacity: 0.6; }
+
+/* ---- Nav ---- */
+.nav { position: sticky; top: 0; z-index: 50; max-width: 960px; margin: 0 auto; padding: 0 24px; }
+.nav-inner {
+  background: var(--card); border-radius: 12px; box-shadow: var(--shadow);
+  padding: 10px 16px; display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none;
+}
+.nav-inner::-webkit-scrollbar { display: none; }
+.nav a {
+  display: block; padding: 8px 14px; text-decoration: none;
+  color: var(--text-light); font-size: 13px; font-weight: 600;
+  white-space: nowrap; border-radius: 8px; transition: all 0.2s;
+}
+.nav a:hover, .nav a.active { color: var(--primary); background: var(--primary-light); }
+
+/* ---- Main ---- */
+.main { max-width: 960px; margin: 0 auto; padding: 24px 24px 80px; }
+.section { margin-bottom: 48px; }
+.section-header {
+  display: flex; align-items: center; gap: 12px;
+  margin-bottom: 20px; padding-bottom: 10px; border-bottom: 2px solid var(--border);
+}
+.section-icon {
+  width: 36px; height: 36px; background: var(--primary); color: white;
+  border-radius: 10px; display: flex; align-items: center; justify-content: center;
+  font-size: 18px; flex-shrink: 0;
+}
+.section-title { font-size: 20px; font-weight: 800; color: var(--primary-dark); }
+
+/* ---- Metrics ---- */
+.metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px,1fr)); gap: 14px; margin-bottom: 24px; }
+.metric {
+  background: var(--card); border-radius: 12px; box-shadow: var(--shadow);
+  border: 1px solid var(--border); padding: 20px; text-align: center;
+}
+.metric .label { font-size: 12px; color: var(--text-light); margin-bottom: 4px; }
+.metric .value { font-size: 26px; font-weight: 800; color: var(--primary); line-height: 1.2; }
+.metric .sub   { font-size: 11px; color: var(--text-light); margin-top: 4px; }
+.metric.good  .value { color: var(--success); }
+.metric.warn  .value { color: var(--warning); }
+.metric.danger .value { color: var(--danger); }
+
+/* ---- Business Sales Table ---- */
+.sales-table-wrap {
+  background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow);
+  border: 1px solid var(--border); overflow-x: auto; margin-bottom: 24px;
+}
+.sales-table { width: 100%; border-collapse: collapse; font-size: 14px; min-width: 600px; }
+.sales-table th {
+  padding: 12px 16px; font-weight: 700; color: var(--primary-dark);
+  text-align: right; background: var(--primary-light);
+  border-bottom: 2px solid var(--border);
+}
+.sales-table th:first-child { text-align: left; }
+.sales-table td {
+  padding: 12px 16px; border-bottom: 1px solid var(--border); text-align: right;
+}
+.sales-table td:first-child { text-align: left; font-weight: 700; }
+.sales-table tr:last-child td { border-bottom: none; }
+.sales-table .total-row td { background: var(--primary-light); font-weight: 800; }
+.biz-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 2px 10px; border-radius: 100px; font-size: 12px; font-weight: 700;
+}
+
+/* ---- Revenue Bar Chart ---- */
+.rev-chart {
+  background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow);
+  border: 1px solid var(--border); padding: 20px 24px; margin-bottom: 24px;
+}
+.rev-chart-title { font-size: 14px; font-weight: 700; color: var(--primary-dark); margin-bottom: 16px; }
+.rev-bar-row { margin-bottom: 12px; }
+.rev-bar-label { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 4px; }
+.rev-bar-label .biz-name { font-weight: 700; }
+.rev-bar-label .biz-amt  { color: var(--text-light); font-weight: 600; }
+.rev-bar-track {
+  height: 10px; background: var(--border); border-radius: 5px; overflow: hidden;
+}
+.rev-bar-fill { height: 100%; border-radius: 5px; transition: width 0.8s ease; }
+
+/* ---- Analysis Cards ---- */
+.analysis-summary {
+  background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow);
+  border: 1px solid var(--border); padding: 24px; margin-bottom: 20px;
+  font-size: 14px; line-height: 1.9;
+}
+.analysis-summary .label {
+  font-size: 12px; font-weight: 700; color: var(--primary); letter-spacing: 0.5px; margin-bottom: 8px;
+}
+
+/* ---- Business Tabs ---- */
+.biz-tabs { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+.biz-tab {
+  padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 700;
+  cursor: pointer; border: 2px solid var(--border); background: var(--card);
+  color: var(--text-light); transition: all 0.2s;
+}
+.biz-tab.active { border-color: currentColor; color: white; }
+.biz-tab-content { display: none; }
+.biz-tab-content.active { display: block; }
+
+/* ---- Analysis Card Grid ---- */
+.analysis-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px,1fr)); gap: 16px; margin-bottom: 20px; }
+.analysis-card {
+  background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow);
+  border: 1px solid var(--border); padding: 20px;
+}
+.analysis-card .card-title {
+  font-size: 14px; font-weight: 800; margin-bottom: 12px;
+  display: flex; align-items: center; gap: 8px;
+}
+.analysis-card ul { list-style: none; padding: 0; }
+.analysis-card ul li {
+  font-size: 13px; line-height: 1.7; padding: 8px 0 8px 20px;
+  position: relative; border-bottom: 1px solid #f5f5f5;
+}
+.analysis-card ul li:last-child { border-bottom: none; }
+.analysis-card ul li::before { content: '▸'; position: absolute; left: 0; color: var(--primary); }
+.card-good    .card-title { color: var(--success); }
+.card-good    ul li::before { color: var(--success); }
+.card-improve .card-title { color: var(--warning); }
+.card-improve ul li::before { color: var(--warning); }
+.card-action  .card-title { color: var(--primary); }
+.card-risk    .card-title { color: var(--danger); }
+.card-risk    ul li::before { color: var(--danger); }
+
+/* ---- Risk Alerts ---- */
+.risk-list { display: flex; flex-direction: column; gap: 10px; }
+.risk-item {
+  background: var(--card); border-radius: 10px; box-shadow: var(--shadow);
+  border-left: 4px solid var(--danger); padding: 14px 18px;
+  font-size: 13px; line-height: 1.7;
+}
+.risk-item .risk-biz {
+  font-size: 11px; font-weight: 700; color: var(--danger);
+  margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px;
+}
+.risk-item.warn { border-color: var(--warning); }
+.risk-item.warn .risk-biz { color: var(--warning); }
+
+/* ---- Action Plans ---- */
+.action-timeline { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px,1fr)); gap: 16px; }
+.action-col {
+  background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow);
+  border: 1px solid var(--border); padding: 20px;
+}
+.action-col-header {
+  font-size: 15px; font-weight: 800; margin-bottom: 16px;
+  padding-bottom: 10px; border-bottom: 2px solid var(--border);
+  display: flex; align-items: center; gap: 8px;
+}
+.action-tag {
+  font-size: 11px; padding: 2px 8px; border-radius: 6px;
+  font-weight: 700; background: var(--primary-light); color: var(--primary);
+}
+.action-tag.m3 { background: #fef3c7; color: #92400e; }
+.action-tag.m6 { background: #fce7f3; color: #9d174d; }
+.action-col ul { list-style: none; padding: 0; }
+.action-col ul li {
+  font-size: 13px; line-height: 1.7; padding: 8px 0 8px 20px;
+  position: relative; border-bottom: 1px solid #f5f5f5;
+}
+.action-col ul li:last-child { border-bottom: none; }
+.action-col ul li::before { content: '→'; position: absolute; left: 0; color: var(--primary); font-weight: 700; }
+
+/* ---- Staff Status ---- */
+.staff-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px,1fr)); gap: 12px; }
+.staff-card {
+  background: var(--card); border-radius: 12px; border: 2px solid var(--border);
+  padding: 16px; box-shadow: var(--shadow);
+}
+.staff-card.good    { border-color: #bbf7d0; background: #f0fdf4; }
+.staff-card.warning { border-color: #fde68a; background: #fffbeb; }
+.staff-card.concern { border-color: #fca5a5; background: #fef2f2; }
+.staff-name   { font-size: 14px; font-weight: 700; color: var(--primary-dark); margin-bottom: 6px; }
+.staff-status-badge {
+  font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 6px;
+  display: inline-block; margin-bottom: 8px;
+}
+.good    .staff-status-badge { background: #dcfce7; color: #166534; }
+.warning .staff-status-badge { background: #fef3c7; color: #92400e; }
+.concern .staff-status-badge { background: #fee2e2; color: #991b1b; }
+.staff-note { font-size: 12px; color: var(--text-light); line-height: 1.6; }
+
+/* ---- Loading / Error ---- */
+.loading { text-align: center; padding: 48px 24px; color: var(--text-light); font-size: 14px; }
+.loading::before {
+  content: ''; display: block; width: 32px; height: 32px;
+  border: 3px solid var(--border); border-top-color: var(--primary);
+  border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 16px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.no-data { text-align: center; padding: 32px; color: var(--text-light); font-size: 13px; }
+.error-msg {
+  background: #fef2f2; border: 1px solid #fecaca;
+  border-radius: 10px; padding: 16px 20px; font-size: 13px; color: #991b1b;
+}
+
+/* ---- Footer ---- */
+.footer {
+  text-align: center; padding: 32px 24px; font-size: 12px;
+  color: var(--text-light); border-top: 1px solid var(--border);
+  max-width: 960px; margin: 0 auto;
+}
+
+@media (max-width: 640px) {
+  .metrics { grid-template-columns: repeat(2,1fr); }
+  .analysis-grid { grid-template-columns: 1fr; }
+  .action-timeline { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<!-- ==================== LOGIN GATE ==================== -->
+<div id="loginScreen">
+  <div class="login-box">
+    <div class="login-logo">🔐</div>
+    <h1>経営ダッシュボード</h1>
+    <p>アクセスにはパスワードが必要です</p>
+    <input type="password" id="pwInput" class="login-input"
+           placeholder="パスワードを入力" autocomplete="current-password">
+    <button class="login-btn" onclick="doLogin()">ログイン</button>
+    <div class="login-error" id="loginError">パスワードが正しくありません</div>
+  </div>
+</div>
+
+<!-- ==================== DASHBOARD ==================== -->
+<div id="dashboard">
+
+<div class="header">
+  <div class="header-inner">
+    <div class="header-badge">株式会社Winforce</div>
+    <h1>経営ダッシュボード</h1>
+    <p>各事業の売上・Chatworkログを自動解析し、毎朝7時に更新します。</p>
+    <div class="header-date" id="headerDate">読み込み中...</div>
+  </div>
+</div>
+
+<div class="nav">
+  <div class="nav-inner">
+    <a href="#sales">売上管理</a>
+    <a href="#analysis">経営分析</a>
+    <a href="#risks">リスクアラート</a>
+    <a href="#goodbad">良い点・改善点</a>
+    <a href="#action">アクションプラン</a>
+    <a href="#staff">スタッフ状況</a>
+  </div>
+</div>
+
+<div class="main">
+
+  <!-- ===== 1. 売上管理 ===== -->
+  <section id="sales" class="section">
+    <div class="section-header">
+      <div class="section-icon">💰</div>
+      <h2 class="section-title">売上管理</h2>
+    </div>
+    <div id="salesContent"><div class="loading">データを読み込み中...</div></div>
+  </section>
+
+  <!-- ===== 2. 経営分析 ===== -->
+  <section id="analysis" class="section">
+    <div class="section-header">
+      <div class="section-icon">🧠</div>
+      <h2 class="section-title">経営分析</h2>
+    </div>
+    <div id="analysisContent"><div class="loading">分析データを読み込み中...</div></div>
+  </section>
+
+  <!-- ===== 3. リスクアラート ===== -->
+  <section id="risks" class="section">
+    <div class="section-header">
+      <div class="section-icon">⚠️</div>
+      <h2 class="section-title">リスクアラート</h2>
+    </div>
+    <div id="risksContent"><div class="loading">読み込み中...</div></div>
+  </section>
+
+  <!-- ===== 4. 良い点・改善点 ===== -->
+  <section id="goodbad" class="section">
+    <div class="section-header">
+      <div class="section-icon">📋</div>
+      <h2 class="section-title">良い点・改善点</h2>
+    </div>
+    <div id="goodbadContent"><div class="loading">読み込み中...</div></div>
+  </section>
+
+  <!-- ===== 5. アクションプラン ===== -->
+  <section id="action" class="section">
+    <div class="section-header">
+      <div class="section-icon">🚀</div>
+      <h2 class="section-title">アクションプラン</h2>
+    </div>
+    <div id="actionContent"><div class="loading">読み込み中...</div></div>
+  </section>
+
+  <!-- ===== 6. スタッフ状況 ===== -->
+  <section id="staff" class="section">
+    <div class="section-header">
+      <div class="section-icon">👥</div>
+      <h2 class="section-title">スタッフ状況</h2>
+    </div>
+    <div id="staffContent"><div class="loading">読み込み中...</div></div>
+  </section>
+
+</div><!-- /.main -->
+
+<div class="footer">
+  <p>株式会社Winforce 経営ダッシュボード｜機密情報</p>
+  <p style="margin-top:6px;" id="footerDate"></p>
+</div>
+
+</div><!-- /#dashboard -->
+
+<script>
+// ================================================================
+// 暗号化設定
+// ================================================================
+var SALT_STR = 'wf_report_2026__'; // 16bytes固定（Pythonと同じ）
+var ITERATIONS = 100000;
+var SESSION_KEY = 'wf_auth_pw';
+
+// ================================================================
+// ログイン処理
+// ================================================================
+function doLogin() {
+  var pw = document.getElementById('pwInput').value;
+  if (!pw) return;
+  loadAndDecrypt(pw);
+}
+
+document.getElementById('pwInput').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') doLogin();
+});
+
+// セッション復元
+(function() {
+  var saved = sessionStorage.getItem(SESSION_KEY);
+  if (saved) loadAndDecrypt(saved);
+})();
+
+async function loadAndDecrypt(password) {
+  try {
+    var resp = await fetch('./data.enc?t=' + Date.now());
+    if (!resp.ok) {
+      showDashboardEmpty();
+      return;
+    }
+    var enc = await resp.text();
+    enc = enc.trim();
+
+    // プレースホルダーチェック
+    if (enc === 'PENDING' || enc === '') {
+      // パスワード確認のためダミー復号を試みる
+      await deriveKey(password);
+      sessionStorage.setItem(SESSION_KEY, password);
+      showDashboardEmpty();
+      return;
+    }
+
+    var data = await decryptData(password, enc);
+    sessionStorage.setItem(SESSION_KEY, password);
+    document.getElementById('loginScreen').style.display = 'none';
+    document.getElementById('dashboard').style.display = 'block';
+    renderAll(data);
+  } catch(e) {
+    document.getElementById('loginError').style.display = 'block';
+    document.getElementById('pwInput').value = '';
+    document.getElementById('pwInput').focus();
+    sessionStorage.removeItem(SESSION_KEY);
+  }
+}
+
+function showDashboardEmpty() {
+  document.getElementById('loginScreen').style.display = 'none';
+  document.getElementById('dashboard').style.display = 'block';
+  document.getElementById('headerDate').textContent = '初回更新待ち';
+  document.getElementById('footerDate').textContent = 'GitHub Actionsの初回実行後に表示されます';
+  ['salesContent','analysisContent','risksContent','goodbadContent','actionContent','staffContent'].forEach(function(id){
+    document.getElementById(id).innerHTML =
+      '<div class="no-data">📋 データがありません。<br>GitHub Actionsが初回実行されると自動的に表示されます。<br><br>' +
+      '今すぐ更新: GitHubの Actions タブ → 「Update Dashboard Data」→「Run workflow」</div>';
+  });
+}
+
+// ================================================================
+// 復号
+// ================================================================
+async function deriveKey(password) {
+  var enc = new TextEncoder();
+  var salt = enc.encode(SALT_STR);
+  var keyMaterial = await crypto.subtle.importKey(
+    'raw', enc.encode(password), 'PBKDF2', false, ['deriveKey']
+  );
+  return crypto.subtle.deriveKey(
+    { name: 'PBKDF2', salt: salt, iterations: ITERATIONS, hash: 'SHA-256' },
+    keyMaterial,
+    { name: 'AES-GCM', length: 256 },
+    false, ['decrypt']
+  );
+}
+
+async function decryptData(password, encBase64) {
+  var key = await deriveKey(password);
+  var encBytes = Uint8Array.from(atob(encBase64), function(c){ return c.charCodeAt(0); });
+  var nonce = encBytes.slice(0, 12);
+  var ciphertext = encBytes.slice(12);
+  var decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: nonce }, key, ciphertext);
+  return JSON.parse(new TextDecoder().decode(decrypted));
+}
+
+// ================================================================
+// 描画
+// ================================================================
+var BIZ_COLORS = {
+  media:     '#3b82f6',
+  planning:  '#8b5cf6',
+  logistics: '#f97316',
+  secretary: '#10b981'
+};
+
+function renderAll(d) {
+  var label = d.updatedAtLabel || '未更新';
+  document.getElementById('headerDate').textContent = '最終更新: ' + label;
+  document.getElementById('footerDate').textContent = '毎朝7時自動更新 | 最終: ' + label;
+  renderSales(d);
+  renderAnalysis(d);
+  renderRisks(d);
+  renderGoodbad(d);
+  renderAction(d);
+  renderStaff(d);
+  initNav();
+}
+
+// ---- 1. 売上管理 ----
+function renderSales(d) {
+  var ov = d.overall || {};
+  var bizs = d.businesses || [];
+  var month = d.targetMonth || '今月';
+
+  var html = '';
+
+  // 全社サマリー
+  html += '<div class="metrics">'
+    + mkMetric('全社売上', fmtY(ov.totalRevenue), month)
+    + mkMetric('全社粗利', fmtY(ov.grossProfit), '粗利率 ' + ov.grossProfitRate + '%')
+    + mkMetric('純利益', fmtY(ov.opProfit), '営業利益率 ' + ov.opProfitRate + '%')
+    + mkMetric('労務費合計', fmtY(ov.totalLaborCost), '全事業合計')
+    + '</div>';
+
+  // 事業別売上バー
+  var maxRev = Math.max.apply(null, bizs.map(function(b){ return (b.sales||{}).revenue || 0; })) || 1;
+  html += '<div class="rev-chart"><div class="rev-chart-title">事業別売上（' + month + '）</div>';
+  bizs.forEach(function(b) {
+    var s = b.sales || {};
+    var rev = s.revenue || 0;
+    var pct = Math.round(rev / maxRev * 100);
+    html += '<div class="rev-bar-row">'
+      + '<div class="rev-bar-label">'
+      + '<span class="biz-name" style="color:' + b.color + '">' + esc(b.name) + '</span>'
+      + '<span class="biz-amt">' + fmtY(rev) + '</span>'
+      + '</div>'
+      + '<div class="rev-bar-track">'
+      + '<div class="rev-bar-fill" style="width:' + pct + '%;background:' + b.color + '"></div>'
+      + '</div></div>';
+  });
+  html += '</div>';
+
+  // 事業別詳細テーブル
+  html += '<div class="sales-table-wrap"><table class="sales-table">'
+    + '<tr><th>事業</th><th>売上</th><th>経費合計</th><th>粗利</th><th>粗利率</th><th>営業利益</th><th>営業利益率</th></tr>';
+  bizs.forEach(function(b) {
+    var s = b.sales || {};
+    html += '<tr>'
+      + '<td><span class="biz-badge" style="background:' + b.color + '20;color:' + b.color + '">' + esc(b.name) + '</span></td>'
+      + '<td>' + fmtY(s.revenue) + '</td>'
+      + '<td>' + fmtY(s.expenses) + '</td>'
+      + '<td>' + fmtY(s.grossProfit) + '</td>'
+      + '<td>' + (s.grossProfitRate||0) + '%</td>'
+      + '<td>' + fmtY(s.opProfit) + '</td>'
+      + '<td>' + (s.opProfitRate||0) + '%</td>'
+      + '</tr>';
+  });
+  html += '<tr class="total-row">'
+    + '<td>全社合計</td>'
+    + '<td>' + fmtY(ov.totalRevenue) + '</td>'
+    + '<td>' + fmtY(ov.totalExpenses) + '</td>'
+    + '<td>' + fmtY(ov.grossProfit) + '</td>'
+    + '<td>' + (ov.grossProfitRate||0) + '%</td>'
+    + '<td>' + fmtY(ov.opProfit) + '</td>'
+    + '<td>' + (ov.opProfitRate||0) + '%</td>'
+    + '</tr></table></div>';
+
+  document.getElementById('salesContent').innerHTML = html;
+}
+
+// ---- 2. 経営分析 ----
+function renderAnalysis(d) {
+  var bizs = d.businesses || [];
+  var sum = d.overallSummary || '分析データがありません。';
+  var html = '';
+
+  html += '<div class="analysis-summary">'
+    + '<div class="label">📝 全社経営状況サマリー（' + (d.updatedAtLabel||'') + '）</div>'
+    + esc(sum)
+    + '</div>';
+
+  if (bizs.length) {
+    html += '<div class="biz-tabs" id="analysisTabs">';
+    bizs.forEach(function(b, i) {
+      html += '<div class="biz-tab' + (i===0?' active':'') + '" data-tab="analysis-' + b.id
+        + '" style="' + (i===0?'background:'+b.color+';border-color:'+b.color:'') + '"'
+        + ' onclick="switchTab(this,\'analysis-\'+\'' + b.id + '\',\'analysisTabs\')">'
+        + esc(b.name) + '</div>';
+    });
+    html += '</div>';
+
+    bizs.forEach(function(b, i) {
+      var a = (b.analysis || {});
+      html += '<div class="biz-tab-content' + (i===0?' active':'') + '" id="analysis-' + b.id + '">';
+      if (a.financialAnalysis) {
+        html += '<div class="analysis-summary" style="margin-bottom:16px">'
+          + '<div class="label" style="color:' + b.color + '">📊 ' + esc(b.name) + ' 財務分析</div>'
+          + esc(a.financialAnalysis) + '</div>';
+      }
+      html += '</div>';
+    });
+  }
+
+  document.getElementById('analysisContent').innerHTML = html;
+}
+
+// ---- 3. リスクアラート ----
+function renderRisks(d) {
+  var topRisks = d.topRisks || [];
+  var bizs = d.businesses || [];
+  var html = '';
+
+  if (topRisks.length) {
+    html += '<div class="risk-list">';
+    topRisks.forEach(function(r) {
+      html += '<div class="risk-item"><div class="risk-biz">⚠ 全社リスク</div>' + esc(r) + '</div>';
+    });
+    html += '</div>';
+  }
+
+  bizs.forEach(function(b) {
+    var risks = ((b.analysis||{}).risks)||[];
+    if (risks.length) {
+      if (html && !html.includes('risk-list')) html += '<div class="risk-list">';
+      else if (!html) html += '<div class="risk-list">';
+      risks.forEach(function(r) {
+        html += '<div class="risk-item warn">'
+          + '<div class="risk-biz" style="color:' + b.color + '">' + esc(b.name) + '</div>'
+          + esc(r) + '</div>';
+      });
+    }
+  });
+
+  if (!topRisks.length && !bizs.some(function(b){ return ((b.analysis||{}).risks||[]).length; })) {
+    html = '<div class="no-data">現在、重大なリスクは検出されていません。</div>';
+  } else {
+    html += '</div>';
+  }
+
+  document.getElementById('risksContent').innerHTML = html;
+}
+
+// ---- 4. 良い点・改善点 ----
+function renderGoodbad(d) {
+  var bizs = d.businesses || [];
+  if (!bizs.length) {
+    document.getElementById('goodbadContent').innerHTML = '<div class="no-data">データがありません。</div>';
+    return;
+  }
+
+  var html = '<div class="biz-tabs" id="goodbadTabs">';
+  bizs.forEach(function(b, i) {
+    html += '<div class="biz-tab' + (i===0?' active':'') + '" data-tab="gb-' + b.id
+      + '" style="' + (i===0?'background:'+b.color+';border-color:'+b.color:'') + '"'
+      + ' onclick="switchTab(this,\'gb-\'+\'' + b.id + '\',\'goodbadTabs\')">'
+      + esc(b.name) + '</div>';
+  });
+  html += '</div>';
+
+  bizs.forEach(function(b, i) {
+    var a = b.analysis || {};
+    html += '<div class="biz-tab-content' + (i===0?' active':'') + '" id="gb-' + b.id + '">'
+      + '<div class="analysis-grid">';
+    if ((a.goodPoints||[]).length)
+      html += mkCard('card-good', '✅ 良い点', a.goodPoints);
+    if ((a.improvements||[]).length)
+      html += mkCard('card-improve', '⚡ 改善が必要な点', a.improvements);
+    html += '</div></div>';
+  });
+
+  document.getElementById('goodbadContent').innerHTML = html;
+}
+
+// ---- 5. アクションプラン ----
+function renderAction(d) {
+  var ap = d.actionPlans || {};
+  var html = '<div class="action-timeline">';
+
+  html += '<div class="action-col">'
+    + '<div class="action-col-header">📅 <span class="action-tag">直近1ヶ月</span></div>'
+    + '<ul>';
+  (ap.month1||[]).forEach(function(a){ html += '<li>' + esc(a) + '</li>'; });
+  if (!(ap.month1||[]).length) html += '<li>データがありません</li>';
+  html += '</ul></div>';
+
+  html += '<div class="action-col">'
+    + '<div class="action-col-header">📅 <span class="action-tag m3">3ヶ月</span></div>'
+    + '<ul>';
+  (ap.month3||[]).forEach(function(a){ html += '<li>' + esc(a) + '</li>'; });
+  if (!(ap.month3||[]).length) html += '<li>データがありません</li>';
+  html += '</ul></div>';
+
+  html += '<div class="action-col">'
+    + '<div class="action-col-header">📅 <span class="action-tag m6">6ヶ月</span></div>'
+    + '<ul>';
+  (ap.month6||[]).forEach(function(a){ html += '<li>' + esc(a) + '</li>'; });
+  if (!(ap.month6||[]).length) html += '<li>データがありません</li>';
+  html += '</ul></div>';
+
+  html += '</div>';
+  document.getElementById('actionContent').innerHTML = html;
+}
+
+// ---- 6. スタッフ状況 ----
+function renderStaff(d) {
+  var bizs = d.businesses || [];
+  if (!bizs.length) {
+    document.getElementById('staffContent').innerHTML = '<div class="no-data">データがありません。</div>';
+    return;
+  }
+
+  var html = '<div class="biz-tabs" id="staffTabs">';
+  bizs.forEach(function(b, i) {
+    html += '<div class="biz-tab' + (i===0?' active':'') + '" data-tab="st-' + b.id
+      + '" style="' + (i===0?'background:'+b.color+';border-color:'+b.color:'') + '"'
+      + ' onclick="switchTab(this,\'st-\'+\'' + b.id + '\',\'staffTabs\')">'
+      + esc(b.name) + '</div>';
+  });
+  html += '</div>';
+
+  bizs.forEach(function(b, i) {
+    var a = b.analysis || {};
+    var staffList = a.staffStatus || [];
+    html += '<div class="biz-tab-content' + (i===0?' active':'') + '" id="st-' + b.id + '">';
+    if (!staffList.length) {
+      html += '<div class="no-data">スタッフ情報がありません。Chatworkルームを設定後に更新されます。</div>';
+    } else {
+      html += '<div class="staff-grid">';
+      staffList.forEach(function(s) {
+        var cls = s.status === 'good' ? 'good' : s.status === 'warning' ? 'warning' : 'concern';
+        var badge = s.status === 'good' ? '✓ 良好' : s.status === 'warning' ? '⚠ 注意' : '❗ 要ケア';
+        html += '<div class="staff-card ' + cls + '">'
+          + '<div class="staff-name">' + esc(s.name) + '</div>'
+          + '<div class="staff-status-badge">' + badge + '</div>'
+          + '<div class="staff-note">' + esc(s.note||'') + '</div>'
+          + '</div>';
+      });
+      html += '</div>';
+    }
+    html += '</div>';
+  });
+
+  document.getElementById('staffContent').innerHTML = html;
+}
+
+// ================================================================
+// タブ切り替え
+// ================================================================
+function switchTab(el, contentId, tabsId) {
+  var tabsContainer = document.getElementById(tabsId);
+  var tabs = tabsContainer.querySelectorAll('.biz-tab');
+  tabs.forEach(function(t) {
+    t.classList.remove('active');
+    t.style.background = '';
+    t.style.borderColor = '';
+    t.style.color = '';
+  });
+  el.classList.add('active');
+  // アクティブタブのスタイルをリセット（カラー付き）
+  // contentIdからbizを特定してカラーを取得する処理は省略し、シンプルにprinaryカラーで
+  el.style.background = 'var(--primary)';
+  el.style.borderColor = 'var(--primary)';
+  el.style.color = 'white';
+
+  // コンテンツ切り替え
+  var parent = tabsContainer.parentNode;
+  parent.querySelectorAll('.biz-tab-content').forEach(function(c){ c.classList.remove('active'); });
+  var target = document.getElementById(contentId);
+  if (target) target.classList.add('active');
+}
+
+// ---- Nav ----
+function initNav() {
+  var secs  = document.querySelectorAll('.section[id]');
+  var links = document.querySelectorAll('.nav a');
+  window.addEventListener('scroll', function(){
+    var cur = '';
+    secs.forEach(function(s){ if (window.scrollY >= s.offsetTop - 80) cur = s.id; });
+    links.forEach(function(a){
+      var on = a.getAttribute('href') === '#' + cur;
+      a.style.background = on ? 'var(--primary-light)' : '';
+      a.style.color      = on ? 'var(--primary)' : '';
+    });
+  });
+  links.forEach(function(a){
+    a.addEventListener('click', function(e){
+      e.preventDefault();
+      var t = document.querySelector(a.getAttribute('href'));
+      if (t) t.scrollIntoView({ behavior: 'smooth' });
+    });
+  });
+}
+
+// ---- Helpers ----
+function mkMetric(label, val, sub) {
+  return '<div class="metric"><div class="label">' + label + '</div>'
+    + '<div class="value">' + val + '</div>'
+    + '<div class="sub">' + sub + '</div></div>';
+}
+function mkCard(cls, title, items) {
+  var lis = items.map(function(t){ return '<li>' + esc(t) + '</li>'; }).join('');
+  return '<div class="analysis-card ' + cls + '">'
+    + '<div class="card-title">' + title + '</div>'
+    + '<ul>' + lis + '</ul></div>';
+}
+function fmtY(n) {
+  if (!n) return '¥0';
+  if (n >= 1000000) return '¥' + (n/10000).toFixed(0) + '万';
+  if (n >= 10000)   return '¥' + (n/10000).toFixed(1) + '万';
+  return '¥' + n.toLocaleString();
+}
+function esc(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+</script>
+</body>
+</html>
