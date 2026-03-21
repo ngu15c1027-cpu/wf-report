@@ -177,6 +177,11 @@ def parse_financials(rows: list, month: int) -> dict:
             current_revenue = get_col(row, mc)
             continue
 
+        # 運営経費セクション検出 → 事業別処理を終了
+        if col_a == '運営経費' or col_b in ['メディア事業部', '経営企画事業部', 'オン秘書事業部', '軽貨物事業部']:
+            current_biz_id = None
+            continue
+
         # 事業名検出
         if col_a in SECTION_STARTERS:
             current_biz_id = SECTION_STARTERS[col_a]
