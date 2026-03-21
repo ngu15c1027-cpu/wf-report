@@ -122,6 +122,9 @@ def get_col(row: list, idx: int) -> float:
     return parse_num(row[idx])
 
 
+ANNUAL_COL = 15  # 合計列（列P、0インデックス）
+
+
 def parse_financials(rows: list, month: int) -> dict:
     """スプレッドシートを解析して各事業の財務データを抽出"""
     mc = get_month_col(month)  # 当月の列インデックス
@@ -153,7 +156,8 @@ def parse_financials(rows: list, month: int) -> dict:
 
     result = {}
     current_biz_id = None
-    current_revenue = None  # 売上高は事業名行より前に出現するため一時保存
+    current_revenue = None
+    current_revenue_annual = None
 
     for i, row in enumerate(rows):
         col_a = row[0].strip() if len(row) > 0 else ''
@@ -163,10 +167,13 @@ def parse_financials(rows: list, month: int) -> dict:
         # 全社合計セクション（利益計算）
         if '売上高(全事業合計)' in col_b:
             result['_overall_revenue'] = get_col(row, mc)
+            result['_overall_revenue_annual'] = get_col(row, ANNUAL_COL)
         if '売上総利益' in col_b:
             result['_overall_gross_profit'] = get_col(row, mc)
+            result['_overall_gross_profit_annual'] = get_col(row, ANNUAL_COL)
         if '純利益' in col_b:
             result['_overall_op_profit'] = get_col(row, mc)
+            result['_overall_op_profit_annual'] = get_col(row, ANNUAL_COL)
         if col_c == '粗利益率' and '利益計算' not in col_a:
             pass  # 各事業の粗利率で処理
         if col_c == '営業利益率':
@@ -175,6 +182,7 @@ def parse_financials(rows: list, month: int) -> dict:
         # 「売上高」行 → 次に来る事業名のための仮保存
         if col_b == '売上高' and col_a == '':
             current_revenue = get_col(row, mc)
+            current_revenue_annual = get_col(row, ANNUAL_COL)
             continue
 
         # 運営経費セクション検出 → 事業別処理を終了
@@ -188,6 +196,7 @@ def parse_financials(rows: list, month: int) -> dict:
             if current_biz_id not in result:
                 result[current_biz_id] = {
                     'revenue': current_revenue or 0.0,
+                    'revenueAnnual': current_revenue_annual or 0.0,
                     'laborCost': 0.0,
                     'fixedCost': 0.0,
                     'variableCost': 0.0,
@@ -196,6 +205,7 @@ def parse_financials(rows: list, month: int) -> dict:
                     'grossProfitRate': 0.0,
                     'opProfit': 0.0,
                     'opProfitRate': 0.0,
+                    'opProfitAnnual': 0.0,
                 }
             # この行は労務費行
             if '労務費' in col_c:
@@ -220,6 +230,7 @@ def parse_financials(rows: list, month: int) -> dict:
             biz['grossProfitRate'] = round(get_col(row, mc), 2)
         elif col_b == '営業利益' and col_c == '':
             biz['opProfit'] = get_col(row, mc)
+            biz['opProfitAnnual'] = get_col(row, ANNUAL_COL)
         elif col_b == '営業利益率':
             biz['opProfitRate'] = round(get_col(row, mc), 2)
         elif '労務費合計' in col_c:
@@ -481,13 +492,16 @@ def main():
         'topRisks':        analysis.get('topRisks', []),
         'actionPlans':     analysis.get('actionPlans', {'month1': [], 'month3': [], 'month6': []}),
         'overall': {
-            'totalRevenue':    overall_revenue,
-            'totalLaborCost':  overall_labor,
-            'totalExpenses':   overall_expenses,
-            'grossProfit':     overall_gross,
-            'grossProfitRate': gross_profit_rate,
-            'opProfit':        overall_op,
-            'opProfitRate':    op_profit_rate,
+            'totalRevenue':        overall_revenue,
+            'totalRevenueAnnual':  financials.get('_overall_revenue_annual', 0),
+            'totalLaborCost':      overall_labor,
+            'totalExpenses':       overall_expenses,
+            'grossProfit':         overall_gross,
+            'grossProfitAnnual':   financials.get('_overall_gross_profit_annual', 0),
+            'grossProfitRate':     gross_profit_rate,
+            'opProfit':            overall_op,
+            'opProfitAnnual':      financials.get('_overall_op_profit_annual', 0),
+            'opProfitRate':        op_profit_rate,
         },
         'businesses': []
     }
@@ -502,11 +516,13 @@ def main():
             'color': biz['color'],
             'sales': {
                 'revenue':         f.get('revenue', 0),
+                'revenueAnnual':   f.get('revenueAnnual', 0),
                 'laborCost':       f.get('laborCost', 0),
                 'expenses':        f.get('expenses', 0),
                 'grossProfit':     f.get('grossProfit', 0),
                 'grossProfitRate': f.get('grossProfitRate', 0),
                 'opProfit':        f.get('opProfit', 0),
+                'opProfitAnnual':  f.get('opProfitAnnual', 0),
                 'opProfitRate':    f.get('opProfitRate', 0),
             },
             'analysis': {
