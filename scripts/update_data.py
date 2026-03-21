@@ -43,32 +43,23 @@ CW_BASE = 'https://api.chatwork.com/v2'
 #   例: https://www.chatwork.com/#!rid123456789 → ルームID: 123456789
 # ============================================================
 CHATWORK_ROOMS = [
-    # ---- アカウント①（TOKEN_1）で監視するルーム ----
-    {
-        'token':   'TOKEN_1',
-        'room_id': 'ROOM_ID_MEDIA_1',       # ← メディア事業のグループチャットID
-        'biz_id':  'media',
-        'name':    'メディア事業_グループチャット名',
-    },
-    {
-        'token':   'TOKEN_1',
-        'room_id': 'ROOM_ID_LOGISTICS_1',   # ← 物流事業のグループチャットID
-        'biz_id':  'logistics',
-        'name':    '物流事業_グループチャット名',
-    },
-    # ---- アカウント②（TOKEN_2）で監視するルーム ----
-    {
-        'token':   'TOKEN_2',
-        'room_id': 'ROOM_ID_PLANNING_1',    # ← 経営企画事業のグループチャットID
-        'biz_id':  'planning',
-        'name':    '経営企画事業_グループチャット名',
-    },
-    {
-        'token':   'TOKEN_2',
-        'room_id': 'ROOM_ID_SECRETARY_1',   # ← オンライン秘書事業のグループチャットID
-        'biz_id':  'secretary',
-        'name':    'オンライン秘書事業_グループチャット名',
-    },
+    # ---- メディア運用事業 ----
+    {'token': 'TOKEN_1', 'room_id': '339645149', 'biz_id': 'media',     'name': '【宇崎さん】プロジェクト進行チャット'},
+    {'token': 'TOKEN_1', 'room_id': '421984121', 'biz_id': 'media',     'name': '【WF内部】工場改善サービス様_制作対応チャット'},
+    {'token': 'TOKEN_1', 'room_id': '422224663', 'biz_id': 'media',     'name': '【工場改善サービス様】全体連絡チャット'},
+    {'token': 'TOKEN_2', 'room_id': '421509838', 'biz_id': 'media',     'name': '【WF】SKリンク様_採用支援プロジェクト'},
+    {'token': 'TOKEN_1', 'room_id': '423811546', 'biz_id': 'media',     'name': '【WF】PSF法律事務所様_制作対応チャット'},
+    # ---- 物流事業 ----
+    {'token': 'TOKEN_2', 'room_id': '422457076', 'biz_id': 'logistics', 'name': '【ステップワン様】対応チャット'},
+    {'token': 'TOKEN_2', 'room_id': '425486645', 'biz_id': 'logistics', 'name': '【WF】アートセッティングデリバリー様_対応チャット'},
+    {'token': 'TOKEN_2', 'room_id': '414959930', 'biz_id': 'logistics', 'name': '【WF】松永種苗様_対応チャット'},
+    {'token': 'TOKEN_2', 'room_id': '425014098', 'biz_id': 'logistics', 'name': '【WF】日工様_業務報告チャット'},
+    {'token': 'TOKEN_2', 'room_id': '417850620', 'biz_id': 'logistics', 'name': '【WF】ユニマット様_対応チャット'},
+    {'token': 'TOKEN_2', 'room_id': '425911292', 'biz_id': 'logistics', 'name': '【WF】シフト調整チャット'},
+    {'token': 'TOKEN_2', 'room_id': '414960040', 'biz_id': 'logistics', 'name': '【WF】Amazon対応チャット'},
+    # ---- 経営企画事業：Chatwork監視なし ----
+    # ---- オンライン秘書事業 ----
+    {'token': 'TOKEN_1', 'room_id': '420733406', 'biz_id': 'secretary', 'name': '【WF】オンライン秘書事業_構築チャット'},
 ]
 
 # 事業マスター
