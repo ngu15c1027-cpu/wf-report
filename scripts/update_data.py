@@ -337,35 +337,32 @@ def analyze_with_claude(financials: dict, chatwork_logs: dict, month_str: str) -
     context = '\n'.join(ctx_lines)
 
     prompt = f"""あなたは株式会社Winforceの経営コンサルタントです。
-以下は{month_str}時点のWinforce各事業の財務データとChatworkログです。
+{month_str}時点のWinforce各事業の財務データとChatworkログを分析し、以下のJSON形式で返してください。
 
 {context}
 
 ---
-代表者が毎朝確認する経営レポートとして、以下のJSON形式で返してください。
-日本語で、具体的・実践的に記述してください。数値・人名・出来事を積極的に使ってください。
-【重要】各テキスト項目は80字以内に収めてください。JSONが途中で切れないよう簡潔に記述してください。
+【出力ルール】
+- 全テキスト項目は60字以内で簡潔に記述
+- 配列は最大3件まで
+- JSONのみ返す（コードブロック不要）
+- overallSummaryのみ150字以内
 
 {{
-  "overallSummary": "全社経営状況の総括（200字程度）",
-  "topRisks": [
-    "全社的なリスク1（放置した場合の影響も含めて）",
-    "全社的なリスク2"
-  ],
+  "overallSummary": "全社経営状況の総括（150字以内）",
+  "topRisks": ["全社リスク1（60字以内）", "全社リスク2"],
   "actionPlans": {{
-    "month1": ["直近1ヶ月でやるべきこと（誰が・何を・いつまでに）×3〜5件"],
-    "month3": ["3ヶ月以内にやるべきこと×3〜5件"],
-    "month6": ["6ヶ月以内にやるべきこと×3〜5件"]
+    "month1": ["直近1ヶ月のアクション1（誰が・何を）", "アクション2", "アクション3"],
+    "month3": ["3ヶ月以内のアクション1", "アクション2", "アクション3"],
+    "month6": ["6ヶ月以内のアクション1", "アクション2", "アクション3"]
   }},
   "businesses": {{
     "media": {{
-      "financialAnalysis": "メディア運用事業の財務分析（100字程度）",
-      "goodPoints": ["良い点1（具体的に）", "良い点2", "良い点3"],
-      "improvements": ["改善点1（なぜ問題かも含めて）", "改善点2"],
+      "financialAnalysis": "メディア運用事業の財務分析（60字以内）",
+      "goodPoints": ["良い点1", "良い点2"],
+      "improvements": ["改善点1", "改善点2"],
       "risks": ["リスク1", "リスク2"],
-      "staffStatus": [
-        {{"name": "スタッフ名またはニックネーム", "status": "good", "note": "具体的なコメント"}}
-      ]
+      "staffStatus": [{{"name": "氏名", "status": "good", "note": "状況コメント"}}]
     }},
     "planning": {{
       "financialAnalysis": "経営企画事業の財務分析",
@@ -382,15 +379,8 @@ def analyze_with_claude(financials: dict, chatwork_logs: dict, month_str: str) -
   }}
 }}
 
-【変動費アラートの基準】
-変動費（交通費・接待交際費等）の売上比率が以下を超えた場合はrisksに必ず含めてください：
-- 売上比3%超：「変動費が売上の○%に達しています。内訳の確認と適正化を検討してください。」
-- 売上比5%超：「変動費が売上の○%と高水準です。緊急に支出内容を精査してください。」
-変動費が0円の場合はアラート不要です。
-
-staffStatusのstatusは "good"（良好）、"warning"（注意）、"concern"（要ケア）のいずれかを使ってください。
-Chatworkログからスタッフの発言・反応・態度などを読み取り、心理状況・モチベーションを推測してください。
-JSONのみを返してください（コードブロック不要）。"""
+【変動費アラート】変動費（交通費・接待交際費等）の売上比率が3%超の場合はrisksに含めてください（0円は不要）。
+staffStatusのstatusは "good" "warning" "concern" のいずれか。Chatworkログからスタッフの状況を推測してください。"""
 
     try:
         message = client.messages.create(
@@ -473,6 +463,8 @@ def main():
     chatwork_logs = {}
     token_map = {'TOKEN_1': CW_TOKEN_1, 'TOKEN_2': CW_TOKEN_2}
 
+    all_accounts = {}  # account_id -> {'name': ..., 'rooms': set()}
+
     for room_cfg in CHATWORK_ROOMS:
         token = token_map[room_cfg['token']]
         room_id = room_cfg['room_id']
@@ -481,11 +473,27 @@ def main():
         msgs = get_chatwork_messages(token, room_id)
         print(f"  {room_cfg['name']}: {len(msgs)}件")
 
+        # account_id収集（組織図スプレッドシート作成用）
+        for msg in msgs:
+            acc = msg.get('account', {})
+            acc_id = acc.get('account_id')
+            if acc_id:
+                if acc_id not in all_accounts:
+                    all_accounts[acc_id] = {'name': acc.get('name', ''), 'rooms': set()}
+                all_accounts[acc_id]['rooms'].add(room_cfg['name'])
+
         if msgs:
             text = format_messages(msgs, room_cfg['name'])
             if biz_id not in chatwork_logs:
                 chatwork_logs[biz_id] = []
             chatwork_logs[biz_id].append(text)
+
+    # Chatwork発言者一覧を表示（組織図スプレッドシート作成時に参照）
+    print('\n=== Chatwork発言者一覧（組織図スプレッドシート作成用）===')
+    for acc_id, info in sorted(all_accounts.items()):
+        rooms = ' / '.join(sorted(info['rooms']))
+        print(f'  account_id: {acc_id}  名前: {info["name"]}  ルーム: {rooms}')
+    print('=== 一覧終わり ===\n')
 
     # 3. Claude分析
     print('Claude APIで経営分析中...')
