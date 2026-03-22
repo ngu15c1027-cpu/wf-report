@@ -63,7 +63,13 @@ CHATWORK_ROOMS = [
     {'token': 'TOKEN_2', 'room_id': '414960040', 'biz_id': 'logistics', 'name': '【WF】Amazon対応チャット'},
     # ---- 経営企画事業：Chatwork監視なし ----
     # ---- オンライン秘書事業 ----
-    {'token': 'TOKEN_1', 'room_id': '420733406', 'biz_id': 'secretary', 'name': '【WF】オンライン秘書事業_構築チャット'},
+    {'token': 'TOKEN_1', 'room_id': '420733406', 'biz_id': 'secretary',   'name': '【WF】オンライン秘書事業_構築チャット'},
+    # ---- 運営（全社横断）----
+    {'token': 'TOKEN_1', 'room_id': '336833853', 'biz_id': 'management',  'name': '飯田ここさんとのDM'},
+    {'token': 'TOKEN_1', 'room_id': '416199200', 'biz_id': 'management',  'name': '【WF】岡本さんとやり取りするチャット'},
+    # ---- 物流事業（追加）----
+    {'token': 'TOKEN_2', 'room_id': '425724017', 'biz_id': 'logistics',   'name': '【WF】希望休通知チャット'},
+    {'token': 'TOKEN_2', 'room_id': '412105315', 'biz_id': 'logistics',   'name': '【WF】車両管理'},
 ]
 
 # 事業マスター
@@ -420,6 +426,11 @@ def analyze_with_claude(financials: dict, chatwork_logs: dict, month_str: str,
             if bid in chatwork_logs and chatwork_logs[bid]:
                 for room_text in chatwork_logs[bid]:
                     ctx_lines.append(room_text)
+        # 運営チャット（全社横断）
+        if 'management' in chatwork_logs and chatwork_logs['management']:
+            ctx_lines.append('\n--- 運営チャット（全社横断）---')
+            for room_text in chatwork_logs['management']:
+                ctx_lines.append(room_text)
     else:
         ctx_lines.append('（Chatworkルームが未設定のためログなし）')
 
