@@ -31,6 +31,10 @@ CW_TOKEN_2     = os.environ['CHATWORK_API_TOKEN_2']
 CLAUDE_API_KEY = os.environ['CLAUDE_API_KEY']
 SHEET_ID       = os.environ['SHEET_ID']
 DASHBOARD_PW   = os.environ['DASHBOARD_PASSWORD']
+ORG_SHEET_ID   = os.environ.get('ORG_SHEET_ID', '')  # 組織図スプレッドシート（任意）
+
+# くまお(5501140) = YutoKato(10153653)：同一人物（代表取締役）のアカウントID統合
+MERGE_ACCOUNTS = {5501140: 10153653}
 
 JST = timezone(timedelta(hours=9))
 CW_BASE = 'https://api.chatwork.com/v2'
@@ -73,6 +77,74 @@ BUSINESSES = [
 # ============================================================
 # ① Googleスプレッドシートから財務データ取得
 # ============================================================
+def fetch_org_chart() -> list:
+    """組織図スプレッドシートを取得してパース"""
+    if not ORG_SHEET_ID:
+        return []
+    url = f'https://docs.google.com/spreadsheets/d/{ORG_SHEET_ID}/export?format=csv'
+    try:
+        resp = requests.get(url, allow_redirects=True, timeout=30)
+        if resp.status_code != 200:
+            print(f'[WARN] 組織図スプレッドシート HTTP {resp.status_code}')
+            return []
+        resp.encoding = 'utf-8'
+        reader = csv.reader(io.StringIO(resp.text))
+        return list(reader)
+    except Exception as e:
+        print(f'[ERROR] fetch_org_chart: {e}')
+        return []
+
+
+def build_account_map(org_rows: list) -> dict:
+    """組織図からaccount_id → スタッフ情報マッピングを構築
+    列: A=氏名, B=事業部, C=役職, D=雇用形態, E=CW_account_id, F=CW表示名, G=備考
+    """
+    account_map = {}  # account_id(int) -> {'name':str, 'dept':str, 'role':str, 'employment':str}
+    if not org_rows:
+        return account_map
+
+    for row in org_rows[1:]:  # ヘッダー行スキップ
+        if len(row) < 5:
+            continue
+        name       = row[0].strip()
+        dept       = row[1].strip()
+        role       = row[2].strip()
+        employment = row[3].strip() if len(row) > 3 else ''
+        cw_id_str  = row[4].strip()
+
+        if not cw_id_str or not name:
+            continue
+        try:
+            cw_id = int(cw_id_str)
+        except ValueError:
+            continue
+
+        info = {'name': name, 'dept': dept, 'role': role, 'employment': employment}
+        # マージ処理：くまお → YutoKato
+        primary_id = MERGE_ACCOUNTS.get(cw_id, cw_id)
+        account_map[cw_id] = info
+        if primary_id != cw_id:
+            account_map[primary_id] = info  # 両方のIDで参照可能に
+
+    return account_map
+
+
+def build_staff_by_dept(account_map: dict) -> dict:
+    """事業部ごとのスタッフ一覧を構築（Claudeプロンプト用）"""
+    dept_map = {}
+    seen = set()
+    for acc_id, info in account_map.items():
+        key = (info['name'], info['dept'])
+        if key in seen:
+            continue
+        seen.add(key)
+        dept = info['dept']
+        if dept not in dept_map:
+            dept_map[dept] = []
+        dept_map[dept].append(f"{info['name']}（{info['role']}・{info['employment']}）")
+    return dept_map
+
+
 def fetch_spreadsheet():
     """スプレッドシートのCSVを取得してパース"""
     url = f'https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv'
@@ -290,22 +362,32 @@ def sanitize(text: str) -> str:
     return text.replace('\\', '').replace('"', '').replace('\r', '').replace('\x00', '')
 
 
-def format_messages(msgs: list, room_name: str) -> str:
-    """メッセージリストを分析用テキストに整形（直近50件）"""
+def format_messages(msgs: list, room_name: str, account_map: dict = None) -> str:
+    """メッセージリストを分析用テキストに整形（直近50件）
+    account_mapがある場合は発言者名を付与する
+    """
     lines = [f'\n=== {room_name} ===']
     recent = msgs[-50:] if len(msgs) > 50 else msgs
     for msg in recent:
         dt = datetime.fromtimestamp(msg.get('send_time', 0), tz=JST)
         body = sanitize(msg.get('body', '').strip())
-        if body:
-            lines.append(f'[{dt.strftime("%m/%d %H:%M")}] {body}')
+        if not body:
+            continue
+        acc_id = msg.get('account', {}).get('account_id', 0)
+        # account_mapがある場合はスタッフ名を付与
+        if account_map and acc_id in account_map:
+            sender = account_map[acc_id]['name']
+        else:
+            sender = msg.get('account', {}).get('name', '')
+        lines.append(f'[{dt.strftime("%m/%d %H:%M")}][{sender}] {body}')
     return '\n'.join(lines)
 
 
 # ============================================================
 # ③ Claude APIで経営分析
 # ============================================================
-def analyze_with_claude(financials: dict, chatwork_logs: dict, month_str: str) -> dict:
+def analyze_with_claude(financials: dict, chatwork_logs: dict, month_str: str,
+                        staff_by_dept: dict = None) -> dict:
     """Claude APIで全事業の経営分析を実行"""
     client = anthropic.Anthropic(api_key=CLAUDE_API_KEY)
 
@@ -324,7 +406,14 @@ def analyze_with_claude(financials: dict, chatwork_logs: dict, month_str: str) -
         ctx_lines.append(f"  労務費: {f.get('laborCost',0):,.0f}円 / 固定費: {f.get('fixedCost',0):,.0f}円")
         ctx_lines.append(f"  変動費（交通費・接待交際費等）: {var:,.0f}円（売上比 {var_rate}%）")
 
-    ctx_lines.append('\n【Chatworkログ】')
+    # スタッフ一覧（組織図が設定されている場合）
+    if staff_by_dept:
+        ctx_lines.append('\n【スタッフ一覧（組織図）】')
+        for dept, members in staff_by_dept.items():
+            ctx_lines.append(f'  {dept}: {", ".join(members)}')
+        ctx_lines.append('  ※Chatworkログの[名前]タグで発言者を特定できます')
+
+    ctx_lines.append('\n【Chatworkログ（[発言者名]付き）】')
     if chatwork_logs:
         for biz in BUSINESSES:
             bid = biz['id']
@@ -448,6 +537,19 @@ def main():
     month = now.month
     month_str = now.strftime('%Y年%m月')
 
+    # 0. 組織図取得
+    account_map = {}
+    staff_by_dept = {}
+    if ORG_SHEET_ID:
+        print('組織図スプレッドシートを取得中...')
+        org_rows = fetch_org_chart()
+        if org_rows:
+            account_map = build_account_map(org_rows)
+            staff_by_dept = build_staff_by_dept(account_map)
+            print(f'  スタッフ {len(set(v["name"] for v in account_map.values()))}名 読み込み完了')
+        else:
+            print('[WARN] 組織図の取得に失敗しました')
+
     # 1. スプレッドシート取得
     print('スプレッドシートから財務データを取得中...')
     rows = fetch_spreadsheet()
@@ -483,7 +585,7 @@ def main():
                 all_accounts[acc_id]['rooms'].add(room_cfg['name'])
 
         if msgs:
-            text = format_messages(msgs, room_cfg['name'])
+            text = format_messages(msgs, room_cfg['name'], account_map)
             if biz_id not in chatwork_logs:
                 chatwork_logs[biz_id] = []
             chatwork_logs[biz_id].append(text)
@@ -497,7 +599,7 @@ def main():
 
     # 3. Claude分析
     print('Claude APIで経営分析中...')
-    analysis = analyze_with_claude(financials, chatwork_logs, month_str)
+    analysis = analyze_with_claude(financials, chatwork_logs, month_str, staff_by_dept)
 
     # 4. データ構築
     # 全社合計
