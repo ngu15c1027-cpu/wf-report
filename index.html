@@ -272,6 +272,12 @@ body {
 .staff-card.good    { border-color: #bbf7d0; background: #f0fdf4; }
 .staff-card.warning { border-color: #fde68a; background: #fffbeb; }
 .staff-card.concern { border-color: #fca5a5; background: #fef2f2; }
+.staff-card.neutral { border-color: var(--border); background: var(--card); }
+.neutral .staff-badge { background: #f3f4f6; color: #6b7280; }
+
+/* ---- Dept group ---- */
+.dept-group { margin-bottom: 20px; }
+.dept-label { font-size: 12px; font-weight: 700; color: var(--text-light); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px; padding-left: 4px; }
 .staff-name  { font-size: 14px; font-weight: 700; margin-bottom: 6px; }
 .staff-badge { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 6px; display: inline-block; margin-bottom: 8px; }
 .good    .staff-badge { background: #dcfce7; color: #166534; }
@@ -521,11 +527,12 @@ function renderOverall(d) {
   html += '<div class="section">';
   html += '<div class="section-header"><div class="section-icon">💰</div><h2 class="section-title">売上管理</h2></div>';
 
-  // サマリーメトリクス（年間値も表示）
+  // サマリーメトリクス
   html += '<div class="metrics">'
-    + mkMetric('全社売上（当月）', fmtY(ov.totalRevenue), month, fmtY(ov.totalRevenueAnnual) + '（年間累計）')
-    + mkMetric('全社粗利', fmtY(ov.grossProfit), '粗利率 ' + (ov.grossProfitRate||0) + '%', fmtY(ov.grossProfitAnnual) + '（年間）')
-    + mkMetric('営業利益', fmtY(ov.opProfit), '利益率 ' + (ov.opProfitRate||0) + '%', fmtY(ov.opProfitAnnual) + '（年間）')
+    + mkMetric('全社売上（当月）', fmtY(ov.totalRevenue), month, '')
+    + mkMetric('年間売上合計', fmtY(ov.totalRevenueAnnual), '1月〜12月累計', '')
+    + mkMetric('全社粗利（当月）', fmtY(ov.grossProfit), '粗利率 ' + (ov.grossProfitRate||0) + '%', fmtY(ov.grossProfitAnnual) + '（年間）')
+    + mkMetric('営業利益（当月）', fmtY(ov.opProfit), '利益率 ' + (ov.opProfitRate||0) + '%', fmtY(ov.opProfitAnnual) + '（年間）')
     + mkMetric('労務費合計', fmtY(ov.totalLaborCost), '全事業', '')
     + '</div>';
 
@@ -661,6 +668,47 @@ function renderOverall(d) {
   html += mkActionCol('📅', 'tag-3m', '3ヶ月以内', ap.month3);
   html += mkActionCol('📅', 'tag-6m', '6ヶ月以内', ap.month6);
   html += '</div></div>';
+
+  /* ─ 全スタッフ状況 ─ */
+  var roster = d.allStaffRoster || [];
+  html += '<div class="section">';
+  html += '<div class="section-header"><div class="section-icon">👥</div><h2 class="section-title">スタッフ状況（全社）</h2></div>';
+  if (!roster.length) {
+    html += '<div class="no-data">組織図スプレッドシートが設定されると自動表示されます。</div>';
+  } else {
+    // Claude分析のstaffStatusをlookupに変換
+    var staffLookup = {};
+    (d.businesses || []).forEach(function(b) {
+      ((b.analysis || {}).staffStatus || []).forEach(function(s) {
+        staffLookup[s.name] = s;
+      });
+    });
+    // 事業部ごとにグループ化
+    var deptOrder = {}, deptList = [];
+    roster.forEach(function(s) {
+      if (!deptOrder[s.dept]) { deptOrder[s.dept] = []; deptList.push(s.dept); }
+      deptOrder[s.dept].push(s);
+    });
+    deptList.forEach(function(dept) {
+      html += '<div class="dept-group">';
+      html += '<div class="dept-label">📁 ' + esc(dept) + '</div>';
+      html += '<div class="staff-grid">';
+      deptOrder[dept].forEach(function(s) {
+        var ca  = staffLookup[s.name];
+        var cls = ca ? (ca.status === 'good' ? 'good' : ca.status === 'warning' ? 'warning' : 'concern') : 'neutral';
+        var badge = ca ? (ca.status === 'good' ? '✓ 良好' : ca.status === 'warning' ? '⚠ 注意' : '❗ 要ケア') : '― データなし';
+        var note  = ca ? (ca.note || '') : 'Chatworkログに発言なし';
+        html += '<div class="staff-card ' + cls + '">'
+          + '<div class="staff-name">' + esc(s.name) + '</div>'
+          + '<div class="staff-badge">' + badge + '</div>'
+          + '<div class="staff-note" style="font-size:11px;color:var(--text-light);margin-bottom:4px">' + esc(s.role) + '</div>'
+          + '<div class="staff-note">' + esc(note) + '</div>'
+          + '</div>';
+      });
+      html += '</div></div>';
+    });
+  }
+  html += '</div>';
 
   document.getElementById('overallContent').innerHTML = html;
 }

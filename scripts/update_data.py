@@ -135,6 +135,19 @@ def build_account_map(org_rows: list) -> dict:
     return account_map
 
 
+def _build_all_staff_roster(account_map: dict) -> list:
+    """全スタッフ一覧リストを構築（重複除去・名前順）"""
+    seen, roster = set(), []
+    for info in account_map.values():
+        name = info['name']
+        if name in seen:
+            continue
+        seen.add(name)
+        roster.append({'name': name, 'dept': info['dept'], 'role': info['role']})
+    roster.sort(key=lambda x: (x['dept'], x['name']))
+    return roster
+
+
 def build_staff_by_dept(account_map: dict) -> dict:
     """事業部ごとのスタッフ一覧を構築（Claudeプロンプト用）"""
     dept_map = {}
@@ -657,7 +670,8 @@ def main():
                 for m in range(1, 13)
             ],
         },
-        'businesses': []
+        'businesses': [],
+        'allStaffRoster': _build_all_staff_roster(account_map),
     }
 
     for biz in BUSINESSES:
