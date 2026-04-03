@@ -101,6 +101,18 @@ mcp__chatwork-kumao__list_room_messages(room_id=xxx, force=1)
 ...
 ```
 
+### Step 5: ダッシュボードに反映
+
+レポート出力後、以下のコマンドで経営ダッシュボードのChatwork振り返りタブを更新する:
+
+```bash
+gh workflow run update.yml --repo ngu15c1027-cpu/wf-report
+```
+
+実行後2〜3分でGitHub Actionsが完了し、ダッシュボードの「💬 CW振り返り」タブに最新データが反映される。
+
+> ※ ダッシュボードURL: https://ngu15c1027-cpu.github.io/wf-report/
+
 ---
 
 ## 注意事項

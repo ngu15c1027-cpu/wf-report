@@ -393,6 +393,112 @@ def get_chatwork_messages(token: str, room_id: str) -> list:
         return []
 
 
+def list_cw_rooms(token: str) -> list:
+    """アカウントの全ルーム一覧を取得"""
+    try:
+        resp = requests.get(
+            f'{CW_BASE}/rooms',
+            headers={'X-ChatWorkToken': token},
+            timeout=30
+        )
+        if resp.status_code == 200:
+            return resp.json()
+        print(f'[WARN] list_cw_rooms HTTP {resp.status_code}')
+        return []
+    except Exception as e:
+        print(f'[ERROR] list_cw_rooms: {e}')
+        return []
+
+
+def fetch_today_cw_review_msgs(token1: str, token2: str, target_date: datetime) -> dict:
+    """くまお/YutoKatoの全ルームから当日メッセージを収集
+
+    - TOKEN_1 (YutoKato, ~79室): 全室対象
+    - TOKEN_2 (くまお, ~2600室): スキップ条件でフィルタ後150室まで
+    Returns: {room_name: [msg_dict, ...]}  当日メッセージがあったルームのみ
+    """
+    import time as _time
+
+    SKIP_KEYWORDS   = ['閉鎖', '旧', '通知', 'SPOT', 'LC通知']
+    PRIORITY_KEYWORDS = ['WF', 'リベクリ', '就労', '訪看']
+    MAX_KUMAO_ROOMS = 150
+
+    # 当日のJST日付範囲
+    day_start = target_date.replace(hour=0, minute=0, second=0, microsecond=0)
+    day_end   = target_date.replace(hour=23, minute=59, second=59, microsecond=999999)
+    ts_start  = int(day_start.timestamp())
+    ts_end    = int(day_end.timestamp())
+
+    result = {}
+
+    def _fetch_room_msgs(token, room_id, room_name):
+        """指定ルームの当日メッセージを取得（なければ空リスト）"""
+        try:
+            resp = requests.get(
+                f'{CW_BASE}/rooms/{room_id}/messages',
+                headers={'X-ChatWorkToken': token},
+                params={'force': 1},
+                timeout=20
+            )
+            if resp.status_code != 200:
+                return []
+            msgs = resp.json()
+            today_msgs = [m for m in msgs if ts_start <= m.get('send_time', 0) <= ts_end]
+            return today_msgs
+        except Exception:
+            return []
+
+    # ── TOKEN_1: YutoKato（全室）──
+    print('  [CW振り返り] YutoKato ルーム一覧取得中...')
+    rooms1 = list_cw_rooms(token1)
+    print(f'  → {len(rooms1)}室')
+    for room in rooms1:
+        room_id   = str(room.get('room_id', ''))
+        room_name = room.get('name') or f'room_{room_id}'
+        _time.sleep(0.25)  # レート制限回避
+        msgs = _fetch_room_msgs(token1, room_id, room_name)
+        if msgs:
+            result[room_name] = result.get(room_name, []) + msgs
+
+    # ── TOKEN_2: くまお（フィルタ後150室）──
+    print('  [CW振り返り] くまお ルーム一覧取得中...')
+    rooms2 = list_cw_rooms(token2)
+    print(f'  → {len(rooms2)}室（フィルタ前）')
+
+    # スキップ条件
+    filtered = [
+        r for r in rooms2
+        if not any(kw in (r.get('name') or '') for kw in SKIP_KEYWORDS)
+    ]
+
+    # 優先度ソート: DM (type=direct) > 優先キーワード含むグループ > その他
+    def _room_priority(r):
+        name = r.get('name') or ''
+        if r.get('type') == 'direct':
+            return 0
+        if any(kw in name for kw in PRIORITY_KEYWORDS):
+            return 1
+        return 2
+
+    filtered.sort(key=_room_priority)
+    target_rooms2 = filtered[:MAX_KUMAO_ROOMS]
+    print(f'  → {len(target_rooms2)}室（フィルタ後）')
+
+    for room in target_rooms2:
+        room_id   = str(room.get('room_id', ''))
+        room_name = room.get('name') or f'room_{room_id}'
+        _time.sleep(0.25)
+        msgs = _fetch_room_msgs(token2, room_id, room_name)
+        if msgs:
+            # 同名ルームがYutoKato側にもあれば統合
+            result[room_name] = result.get(room_name, []) + msgs
+
+    active = len(result)
+    total  = sum(len(v) for v in result.values())
+    print(f'  [CW振り返り] アクティブルーム: {active}室 / 総メッセージ: {total}件')
+    return result
+
+
 def sanitize(text: str) -> str:
     """JSON埋め込み時に問題となる文字を除去"""
     return text.replace('\\', '').replace('"', '').replace('\r', '').replace('\x00', '')
@@ -606,19 +712,22 @@ def build_cw_review(raw_msgs_by_room: dict, month_str: str) -> dict:
     """くまお/YutoKatoの発言を収集しClaudeで振り返り分析"""
     client = anthropic.Anthropic(api_key=CLAUDE_API_KEY)
 
-    my_messages = []
-    room_counts  = {}
+    my_messages      = []  # 自分の発言
+    received_total   = 0   # 受信メッセージ数（自分以外）
+    room_counts      = {}  # ルーム別メッセージ数（全メッセージ）
 
     for room_name, msgs in raw_msgs_by_room.items():
         for msg in msgs:
             acc_id = msg.get('account', {}).get('account_id', 0)
+            body   = sanitize(msg.get('body', '').strip())
+            if not body:
+                continue
+            dt = datetime.fromtimestamp(msg.get('send_time', 0), tz=JST)
+            room_counts[room_name] = room_counts.get(room_name, 0) + 1
             if acc_id in CW_REVIEW_IDS:
-                body = sanitize(msg.get('body', '').strip())
-                if not body:
-                    continue
-                dt = datetime.fromtimestamp(msg.get('send_time', 0), tz=JST)
                 my_messages.append({'room': room_name, 'dt': dt, 'body': body})
-                room_counts[room_name] = room_counts.get(room_name, 0) + 1
+            else:
+                received_total += 1
 
     total = len(my_messages)
     if my_messages:
@@ -629,6 +738,7 @@ def build_cw_review(raw_msgs_by_room: dict, month_str: str) -> dict:
         earliest = latest = '--:--'
 
     room_summary = sorted(room_counts.items(), key=lambda x: -x[1])[:10]
+    active_rooms = len(room_counts)
 
     # Claude分析用テキスト（直近100件）
     recent = sorted(my_messages, key=lambda m: m['dt'])[-100:]
@@ -638,12 +748,15 @@ def build_cw_review(raw_msgs_by_room: dict, month_str: str) -> dict:
     )
 
     fallback = {
-        'totalMessages': total,
-        'earliest': earliest,
-        'latest': latest,
+        'totalMessages':    total,
+        'receivedMessages': received_total,
+        'activeRooms':      active_rooms,
+        'earliest':         earliest,
+        'latest':           latest,
         'roomSummary': [{'room': r, 'count': c} for r, c in room_summary],
         'achievements': [], 'inProgress': [], 'decisions': [],
-        'carryOver': [], 'qualityNote': '分析データなし', 'suggestions': [],
+        'carryOver': [], 'qualityAlerts': [], 'qualityNote': '分析データなし',
+        'suggestions': [],
     }
     if total == 0:
         return fallback
@@ -654,15 +767,16 @@ def build_cw_review(raw_msgs_by_room: dict, month_str: str) -> dict:
 {log_text}
 
 ---
-以下のJSON形式で振り返り分析してください。各項目は50字以内、配列は最大4件。
+以下のJSON形式で振り返り分析してください。各項目は50字以内、配列は最大5件。
 
 {{
-  "achievements": ["完了・解決したこと1", "2"],
-  "inProgress":   ["進行中の課題1", "2"],
-  "decisions":    ["下した意思決定1", "2"],
-  "carryOver":    ["翌日以降に持ち越す事項1", "2"],
-  "qualityNote":  "コミュニケーション品質・傾向（50字以内）",
-  "suggestions":  ["改善提案1（具体的に）", "2"]
+  "achievements":  ["完了・解決したこと1", "2"],
+  "inProgress":    ["進行中の課題1", "2"],
+  "decisions":     ["下した意思決定1", "2"],
+  "carryOver":     ["翌日以降に持ち越す事項1", "2"],
+  "qualityAlerts": ["苦情・クレーム・謝罪・ミスの内容（あれば）"],
+  "qualityNote":   "コミュニケーション品質・傾向（50字以内）",
+  "suggestions":   ["改善提案1（具体的に）", "2"]
 }}
 
 JSONのみ返してください。"""
@@ -898,10 +1012,20 @@ def main():
     news_logistics = fetch_news('物流 配送 ドライバー 運送')
     print(f'  経済ニュース: {len(news_economic)}件 / 物流ニュース: {len(news_logistics)}件')
 
-    # 2c. CW振り返り
+    # 2c. CW振り返り（全ルームから当日メッセージを収集）
+    print('CW振り返り: 全ルームから当日メッセージを収集中...')
+    # 前日（7時実行なので昨日のビジネスデーを振り返る）
+    review_date = now - timedelta(days=1)
+    all_room_msgs = fetch_today_cw_review_msgs(CW_TOKEN_1, CW_TOKEN_2, review_date)
+    # 定義済みCHATWORK_ROOMSのメッセージも統合
+    for room_name, msgs in raw_msgs_by_room.items():
+        if room_name not in all_room_msgs:
+            all_room_msgs[room_name] = msgs
+        else:
+            all_room_msgs[room_name] = all_room_msgs[room_name] + msgs
     print('CW振り返り分析中（くまお/YutoKato）...')
-    cw_review = build_cw_review(raw_msgs_by_room, month_str)
-    print(f'  発言数: {cw_review["totalMessages"]}件')
+    cw_review = build_cw_review(all_room_msgs, month_str)
+    print(f'  発言数: {cw_review["totalMessages"]}件 / 受信: {cw_review["receivedMessages"]}件')
 
     # 2d. Googleカレンダー
     calendar_data = {'events': [], 'analysis': {}}

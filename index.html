@@ -947,7 +947,9 @@ function renderCwReview(r) {
     + '<h2 class="section-title">Chatwork振り返り（くまお / YutoKato）</h2></div>';
 
   html += '<div class="metrics">'
-    + mkMetric('総送信メッセージ', (r.totalMessages||0) + '件', '全ルーム合計', '')
+    + mkMetric('自分の発言', (r.totalMessages||0) + '件', '全ルーム合計', '')
+    + mkMetric('受信メッセージ', (r.receivedMessages||0) + '件', '他者からの発言', '')
+    + mkMetric('アクティブルーム', (r.activeRooms||0) + '室', '', '')
     + mkMetric('活動開始', r.earliest||'--:--', '', '')
     + mkMetric('活動終了', r.latest||'--:--', '', '')
     + '</div>';
@@ -967,6 +969,12 @@ function renderCwReview(r) {
   html += mkCard('card-action',  '📌 意思決定',    r.decisions);
   html += mkCard('card-risk',    '🔄 持ち越し',    r.carryOver);
   html += '</div>';
+
+  if ((r.qualityAlerts||[]).length) {
+    html += '<div class="analysis-card" style="margin-top:12px;border-left:4px solid var(--danger)"><div class="card-title" style="color:var(--danger)">⚠️ 品質・クレーム</div><ul>';
+    r.qualityAlerts.forEach(function(s){ html += '<li>' + esc(s) + '</li>'; });
+    html += '</ul></div>';
+  }
 
   if (r.qualityNote) {
     html += '<div class="analysis-summary" style="margin-top:16px">'
