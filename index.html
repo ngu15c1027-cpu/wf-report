@@ -676,12 +676,17 @@ function renderOverall(d) {
   if (!roster.length) {
     html += '<div class="no-data">組織図スプレッドシートが設定されると自動表示されます。</div>';
   } else {
-    // Claude分析のstaffStatusをlookupに変換
+    // Claude分析のstaffStatusをlookupに変換（全事業 + 運営overallStaffStatusを統合）
     var staffLookup = {};
+    // 各事業のstaffStatus
     (d.businesses || []).forEach(function(b) {
       ((b.analysis || {}).staffStatus || []).forEach(function(s) {
-        staffLookup[s.name] = s;
+        if (s.name) staffLookup[s.name] = s;
       });
+    });
+    // 運営スタッフ用overallStaffStatus（上書き優先）
+    (d.overallStaffStatus || []).forEach(function(s) {
+      if (s.name) staffLookup[s.name] = s;
     });
     // 事業部ごとにグループ化
     var deptOrder = {}, deptList = [];

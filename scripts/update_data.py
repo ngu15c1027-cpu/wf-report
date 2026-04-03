@@ -132,6 +132,13 @@ def build_account_map(org_rows: list) -> dict:
         if primary_id != cw_id:
             account_map[primary_id] = info  # 両方のIDで参照可能に
 
+    # くまお/YutoKato などのマージアカウントで名前を統一
+    # secondary(key) の名前を canonical として primary(value) に適用
+    for secondary_id, primary_id in MERGE_ACCOUNTS.items():
+        if secondary_id in account_map and primary_id in account_map:
+            canonical_name = account_map[secondary_id]['name']
+            account_map[primary_id]['name'] = canonical_name
+
     return account_map
 
 
@@ -457,7 +464,8 @@ def analyze_with_claude(financials: dict, chatwork_logs: dict, month_str: str,
 ---
 【出力ルール】
 - 全テキスト項目は60字以内で簡潔に記述
-- 配列は最大3件まで
+- topRisks・goodPoints・improvements・risksは最大3件まで
+- staffStatusは組織図記載のスタッフ全員分を必ず記入（件数制限なし）
 - JSONのみ返す（コードブロック不要）
 - overallSummaryのみ150字以内
 
@@ -469,13 +477,24 @@ def analyze_with_claude(financials: dict, chatwork_logs: dict, month_str: str,
     "month3": ["3ヶ月以内のアクション1", "アクション2", "アクション3"],
     "month6": ["6ヶ月以内のアクション1", "アクション2", "アクション3"]
   }},
+  "overallStaffStatus": [
+    {{"name": "くまお", "status": "good", "note": "運営スタッフの状況"}},
+    {{"name": "飯田ここ", "status": "good", "note": ""}},
+    {{"name": "岡本あゆみ", "status": "unknown", "note": ""}},
+    {{"name": "中西稜", "status": "unknown", "note": ""}}
+  ],
   "businesses": {{
     "media": {{
       "financialAnalysis": "メディア運用事業の財務分析（60字以内）",
       "goodPoints": ["良い点1", "良い点2"],
       "improvements": ["改善点1", "改善点2"],
       "risks": ["リスク1", "リスク2"],
-      "staffStatus": [{{"name": "氏名", "status": "good", "note": "状況コメント"}}]
+      "staffStatus": [
+        {{"name": "宇崎こうた", "status": "good", "note": ""}},
+        {{"name": "吉永鉄", "status": "good", "note": ""}},
+        {{"name": "パパすけ", "status": "good", "note": ""}},
+        {{"name": "宇井警太", "status": "good", "note": ""}}
+      ]
     }},
     "planning": {{
       "financialAnalysis": "経営企画事業の財務分析",
@@ -483,17 +502,31 @@ def analyze_with_claude(financials: dict, chatwork_logs: dict, month_str: str,
     }},
     "logistics": {{
       "financialAnalysis": "物流事業の財務分析",
-      "goodPoints": [], "improvements": [], "risks": [], "staffStatus": []
+      "goodPoints": [], "improvements": [], "risks": [],
+      "staffStatus": [
+        {{"name": "すぎしょう", "status": "good", "note": ""}},
+        {{"name": "まるお", "status": "good", "note": ""}},
+        {{"name": "木村一樹", "status": "good", "note": ""}},
+        {{"name": "加藤尚斗", "status": "good", "note": ""}},
+        {{"name": "小川勇司", "status": "good", "note": ""}},
+        {{"name": "勝田洸誠", "status": "good", "note": ""}},
+        {{"name": "小村星大", "status": "good", "note": ""}}
+      ]
     }},
     "secretary": {{
       "financialAnalysis": "オンライン秘書事業の財務分析",
-      "goodPoints": [], "improvements": [], "risks": [], "staffStatus": []
+      "goodPoints": [], "improvements": [], "risks": [],
+      "staffStatus": [{{"name": "小原千怜", "status": "good", "note": ""}}]
     }}
   }}
 }}
 
-【変動費アラート】変動費（交通費・接待交際費等）の売上比率が3%超の場合はrisksに含めてください（0円は不要）。
-staffStatusのstatusは "good" "warning" "concern" のいずれか。Chatworkログからスタッフの状況を推測してください。"""
+【スタッフ分析ルール】
+- 上記staffStatusは「雛形」です。Chatworkログ（[氏名]タグで発言者を特定）を必ず参照して各自の状況を上書きしてください
+- Chatworkログに発言が見つかったスタッフ: 発言内容・トーン・業務状況からstatus（good/warning/concern）とnoteを記入
+- Chatworkログに発言がないスタッフ: status "unknown", note "Chatworkログに発言なし" のままにしてください
+- overallStaffStatusは運営スタッフ（くまお・飯田ここ・岡本あゆみ・中西稜）を対象に、運営チャットログから分析してください
+【変動費アラート】変動費（交通費・接待交際費等）の売上比率が3%超の場合はrisksに含めてください（0円は不要）。"""
 
     try:
         message = client.messages.create(
@@ -641,9 +674,10 @@ def main():
         'updatedAt':       now.isoformat(),
         'updatedAtLabel':  now.strftime('%Y年%m月%d日 %H:%M'),
         'targetMonth':     month_str,
-        'overallSummary':  analysis.get('overallSummary', ''),
-        'topRisks':        analysis.get('topRisks', []),
-        'actionPlans':     analysis.get('actionPlans', {'month1': [], 'month3': [], 'month6': []}),
+        'overallSummary':      analysis.get('overallSummary', ''),
+        'topRisks':            analysis.get('topRisks', []),
+        'actionPlans':         analysis.get('actionPlans', {'month1': [], 'month3': [], 'month6': []}),
+        'overallStaffStatus':  analysis.get('overallStaffStatus', []),
         'overall': {
             'totalRevenue':        overall_revenue,
             'totalRevenueAnnual':  financials.get('_overall_revenue_annual', 0),
