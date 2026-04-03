@@ -310,6 +310,32 @@ body {
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* ---- Analysis (CW/Calendar) ---- */
+.analysis-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px,1fr)); gap: 14px; margin-bottom: 16px; }
+.analysis-card {
+  background: var(--card); border-radius: var(--radius); border: 1px solid var(--border);
+  box-shadow: var(--shadow); padding: 16px 18px;
+}
+.analysis-card .card-title { font-size: 14px; font-weight: 800; margin-bottom: 10px; }
+.analysis-card ul { list-style: none; padding: 0; }
+.analysis-card ul li { font-size: 13px; line-height: 1.7; padding: 6px 0 6px 16px; position: relative; border-bottom: 1px solid #f3f4f6; }
+.analysis-card ul li:last-child { border-bottom: none; }
+.analysis-card ul li::before { content: '→'; position: absolute; left: 0; color: var(--primary); font-weight: 700; }
+.analysis-summary {
+  background: var(--primary-light); border-radius: var(--radius); border: 1px solid #bfdbfe;
+  padding: 16px 20px; font-size: 14px; line-height: 1.8;
+}
+.analysis-summary .label, .analysis-summary .alabel {
+  font-size: 11px; font-weight: 700; color: var(--primary); letter-spacing: 0.5px;
+  text-transform: uppercase; margin-bottom: 6px;
+}
+.sales-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.sales-table th { padding: 8px 12px; font-weight: 700; color: var(--text-light); text-align: right; background: #f8fafc; border-bottom: 1px solid var(--border); font-size: 11px; text-transform: uppercase; }
+.sales-table th:first-child { text-align: left; }
+.sales-table td { padding: 10px 12px; border-bottom: 1px solid #f3f4f6; text-align: right; }
+.sales-table td:first-child { text-align: left; font-weight: 600; }
+.sales-table tr:last-child td { border-bottom: none; }
+
 /* ---- News ---- */
 .news-list { display: flex; flex-direction: column; gap: 8px; }
 .news-item {
@@ -538,11 +564,16 @@ function renderAll(d) {
   var label = d.updatedAtLabel || '未更新';
   document.getElementById('headerDate').textContent = '最終更新: ' + label;
   document.getElementById('footerDate').textContent = '毎朝7時自動更新 | 最終: ' + label;
-  renderOverall(d);
-  renderNews(d.news || {});
-  renderCwReview(d.cwReview || {});
-  renderCalendar(d.calendar || {});
-  (d.businesses || []).forEach(function(b) { renderBizPage(b, d); });
+  var renders = [
+    function(){ renderOverall(d); },
+    function(){ renderNews(d.news || {}); },
+    function(){ renderCwReview(d.cwReview || {}); },
+    function(){ renderCalendar(d.calendar || {}); },
+  ];
+  renders.forEach(function(fn) { try { fn(); } catch(e) { console.error('render error:', e); } });
+  (d.businesses || []).forEach(function(b) {
+    try { renderBizPage(b, d); } catch(e) { console.error('renderBizPage error:', e); }
+  });
 }
 
 // ================================================================
@@ -906,6 +937,14 @@ function mkActionCol(icon, tagCls, label, items) {
     + '<ul>';
   (items||[]).forEach(function(a){ html += '<li>' + esc(a) + '</li>'; });
   if (!(items||[]).length) html += '<li>データがありません</li>';
+  return html + '</ul></div>';
+}
+
+function mkCard(cls, title, items) {
+  var html = '<div class="gb-card ' + (cls === 'card-good' ? 'good' : cls === 'card-improve' ? 'improve' : '') + '">'
+    + '<div class="card-title">' + title + '</div><ul>';
+  (items||[]).forEach(function(s){ html += '<li>' + esc(s) + '</li>'; });
+  if (!(items||[]).length) html += '<li style="color:var(--text-light)">なし</li>';
   return html + '</ul></div>';
 }
 
