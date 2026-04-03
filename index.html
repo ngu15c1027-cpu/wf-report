@@ -310,6 +310,16 @@ body {
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* ---- News ---- */
+.news-list { display: flex; flex-direction: column; gap: 8px; }
+.news-item {
+  background: var(--card); border-radius: 10px; border: 1px solid var(--border);
+  padding: 14px 18px; box-shadow: var(--shadow);
+}
+.news-title a { font-size: 14px; font-weight: 600; color: var(--primary-dark); text-decoration: none; line-height: 1.5; }
+.news-title a:hover { text-decoration: underline; color: var(--primary); }
+.news-meta { font-size: 11px; color: var(--text-light); margin-top: 4px; }
+
 /* ---- Footer ---- */
 .footer {
   text-align: center; padding: 32px 24px; font-size: 12px;
@@ -356,6 +366,9 @@ body {
 <div class="main-nav-wrap">
   <div class="main-nav" id="mainNav">
     <div class="nav-tab active" onclick="showPage('overall',this)">🏢 全社サマリー</div>
+    <div class="nav-tab" onclick="showPage('news',this)">📰 ニュース</div>
+    <div class="nav-tab" onclick="showPage('cwreview',this)">💬 CW振り返り</div>
+    <div class="nav-tab" onclick="showPage('calendar',this)">📅 カレンダー</div>
     <div class="nav-tab" onclick="showPage('media',this)">
       <span class="nav-dot" style="background:#3b82f6"></span>メディア運用事業
     </div>
@@ -376,6 +389,21 @@ body {
   <!-- ===== 全社サマリー ===== -->
   <div class="page active" id="page-overall">
     <div id="overallContent"><div class="loading">データを読み込み中...</div></div>
+  </div>
+
+  <!-- ===== ニュース ===== -->
+  <div class="page" id="page-news">
+    <div id="newsContent"><div class="loading">読み込み中...</div></div>
+  </div>
+
+  <!-- ===== CW振り返り ===== -->
+  <div class="page" id="page-cwreview">
+    <div id="cwreviewContent"><div class="loading">読み込み中...</div></div>
+  </div>
+
+  <!-- ===== カレンダー ===== -->
+  <div class="page" id="page-calendar">
+    <div id="calendarContent"><div class="loading">読み込み中...</div></div>
   </div>
 
   <!-- ===== メディア運用事業 ===== -->
@@ -511,6 +539,9 @@ function renderAll(d) {
   document.getElementById('headerDate').textContent = '最終更新: ' + label;
   document.getElementById('footerDate').textContent = '毎朝7時自動更新 | 最終: ' + label;
   renderOverall(d);
+  renderNews(d.news || {});
+  renderCwReview(d.cwReview || {});
+  renderCalendar(d.calendar || {});
   (d.businesses || []).forEach(function(b) { renderBizPage(b, d); });
 }
 
@@ -876,6 +907,135 @@ function mkActionCol(icon, tagCls, label, items) {
   (items||[]).forEach(function(a){ html += '<li>' + esc(a) + '</li>'; });
   if (!(items||[]).length) html += '<li>データがありません</li>';
   return html + '</ul></div>';
+}
+
+// ================================================================
+// ニュース描画
+// ================================================================
+function renderNews(news) {
+  var html = '';
+  function newsSection(title, icon, items, color) {
+    html += '<div class="section"><div class="section-header">'
+      + '<div class="section-icon" style="background:' + color + '">' + icon + '</div>'
+      + '<h2 class="section-title">' + esc(title) + '</h2></div>';
+    if (!items || !items.length) {
+      html += '<div class="no-data">ニュースを取得できませんでした。</div>';
+    } else {
+      html += '<div class="news-list">';
+      items.forEach(function(n) {
+        html += '<div class="news-item">'
+          + '<div class="news-title"><a href="' + esc(n.link) + '" target="_blank" rel="noopener">' + esc(n.title) + '</a></div>'
+          + '<div class="news-meta">' + esc(n.source||'') + (n.pubDate ? ' · ' + esc(n.pubDate.slice(0,16)) : '') + '</div>'
+          + '</div>';
+      });
+      html += '</div>';
+    }
+    html += '</div>';
+  }
+  newsSection('経済ニュース', '📊', news.economic,  '#2563eb');
+  newsSection('物流ニュース', '🚚', news.logistics, '#f97316');
+  document.getElementById('newsContent').innerHTML = html;
+}
+
+// ================================================================
+// CW振り返り描画
+// ================================================================
+function renderCwReview(r) {
+  var html = '';
+  html += '<div class="section"><div class="section-header">'
+    + '<div class="section-icon">💬</div>'
+    + '<h2 class="section-title">Chatwork振り返り（くまお / YutoKato）</h2></div>';
+
+  html += '<div class="metrics">'
+    + mkMetric('総送信メッセージ', (r.totalMessages||0) + '件', '全ルーム合計', '')
+    + mkMetric('活動開始', r.earliest||'--:--', '', '')
+    + mkMetric('活動終了', r.latest||'--:--', '', '')
+    + '</div>';
+
+  if ((r.roomSummary||[]).length) {
+    html += '<div class="analysis-card" style="margin-bottom:20px"><div class="card-title">📍 ルーム別メッセージ数 TOP10</div>';
+    html += '<table class="sales-table"><thead><tr><th style="text-align:left">ルーム</th><th>件数</th></tr></thead><tbody>';
+    r.roomSummary.forEach(function(s) {
+      html += '<tr><td style="text-align:left">' + esc(s.room) + '</td><td>' + s.count + '</td></tr>';
+    });
+    html += '</tbody></table></div>';
+  }
+
+  html += '<div class="analysis-grid">';
+  html += mkCard('card-good',    '✅ 完了・解決',  r.achievements);
+  html += mkCard('card-improve', '🟠 進行中の課題', r.inProgress);
+  html += mkCard('card-action',  '📌 意思決定',    r.decisions);
+  html += mkCard('card-risk',    '🔄 持ち越し',    r.carryOver);
+  html += '</div>';
+
+  if (r.qualityNote) {
+    html += '<div class="analysis-summary" style="margin-top:16px">'
+      + '<div class="label">💡 コミュニケーション品質</div>' + esc(r.qualityNote) + '</div>';
+  }
+  if ((r.suggestions||[]).length) {
+    html += '<div class="analysis-card" style="margin-top:12px"><div class="card-title card-action">🎯 改善提案</div><ul>';
+    r.suggestions.forEach(function(s){ html += '<li>' + esc(s) + '</li>'; });
+    html += '</ul></div>';
+  }
+  html += '</div>';
+  document.getElementById('cwreviewContent').innerHTML = html;
+}
+
+// ================================================================
+// カレンダー描画
+// ================================================================
+function renderCalendar(cal) {
+  var html = '';
+  html += '<div class="section"><div class="section-header">'
+    + '<div class="section-icon">📅</div><h2 class="section-title">Googleカレンダー分析</h2></div>';
+
+  var events   = cal.events   || [];
+  var analysis = cal.analysis || {};
+
+  if (!events.length && !analysis.summary) {
+    html += '<div class="no-data" style="padding:40px">'
+      + 'カレンダーが未連携です。<br>GitHub Secrets に GCAL_ICAL_URL を設定すると有効になります。</div>';
+    html += '</div>';
+    document.getElementById('calendarContent').innerHTML = html;
+    return;
+  }
+
+  if (analysis.summary) {
+    html += '<div class="analysis-summary"><div class="label">📊 時間活用の評価</div>' + esc(analysis.summary) + '</div>';
+  }
+  var stats = analysis.stats || {};
+  if (stats.meetingCount !== undefined || stats.focusBlocks || stats.busiestDay) {
+    html += '<div class="metrics">';
+    if (stats.meetingCount !== undefined) html += mkMetric('会議・打合せ', stats.meetingCount + '件', '過去2週間', '');
+    if (stats.focusBlocks)  html += mkMetric('集中時間ブロック', esc(stats.focusBlocks), '', '');
+    if (stats.busiestDay)   html += mkMetric('最多予定曜日',     esc(stats.busiestDay),  '', '');
+    html += '</div>';
+  }
+  if ((analysis.suggestions||[]).length) {
+    html += '<div class="analysis-card" style="margin-bottom:16px"><div class="card-title card-action">🎯 時間活用の改善提案</div><ul>';
+    analysis.suggestions.forEach(function(s){ html += '<li>' + esc(s) + '</li>'; });
+    html += '</ul></div>';
+  }
+
+  function evTable(title, evs) {
+    if (!evs.length) return;
+    html += '<div class="analysis-card" style="margin-bottom:16px"><div class="card-title">' + title + '</div>';
+    html += '<table class="sales-table"><thead><tr>'
+      + '<th style="text-align:left">日時</th><th style="text-align:left">予定</th><th>時間</th>'
+      + '</tr></thead><tbody>';
+    evs.forEach(function(e) {
+      html += '<tr><td style="text-align:left;font-size:12px">' + esc(e.dt) + '</td>'
+        + '<td style="text-align:left">' + esc(e.summary) + '</td>'
+        + '<td>' + esc(e.duration) + '</td></tr>';
+    });
+    html += '</tbody></table></div>';
+  }
+
+  evTable('📋 今後7日間の予定', events.filter(function(e){ return !e.isPast; }));
+  evTable('📁 過去2週間の実績', events.filter(function(e){ return e.isPast; }).slice(-15));
+
+  html += '</div>';
+  document.getElementById('calendarContent').innerHTML = html;
 }
 </script>
 </body>

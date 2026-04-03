@@ -16,12 +16,18 @@ import json
 import re
 import base64
 import secrets as pysecrets
+import xml.etree.ElementTree as ET
 import requests
 from datetime import datetime, timezone, timedelta
 import anthropic
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+try:
+    from icalendar import Calendar as iCalendar
+    HAS_ICALENDAR = True
+except ImportError:
+    HAS_ICALENDAR = False
 
 # ============================================================
 # 設定
@@ -31,7 +37,11 @@ CW_TOKEN_2     = os.environ['CHATWORK_API_TOKEN_2']
 CLAUDE_API_KEY = os.environ['CLAUDE_API_KEY']
 SHEET_ID       = os.environ['SHEET_ID']
 DASHBOARD_PW   = os.environ['DASHBOARD_PASSWORD']
-ORG_SHEET_ID   = os.environ.get('ORG_SHEET_ID', '')  # 組織図スプレッドシート（任意）
+ORG_SHEET_ID   = os.environ.get('ORG_SHEET_ID', '')   # 組織図スプレッドシート（任意）
+GCAL_ICAL_URL  = os.environ.get('GCAL_ICAL_URL', '')  # GoogleカレンダーiCal秘密URL（任意）
+
+# CW振り返り対象アカウント（くまお = YutoKato、同一人物）
+CW_REVIEW_IDS = {5501140, 10153653}
 
 # くまお(5501140) = YutoKato(10153653)：同一人物（代表取締役）のアカウントID統合
 MERGE_ACCOUNTS = {5501140: 10153653}
@@ -564,7 +574,233 @@ def analyze_with_claude(financials: dict, chatwork_logs: dict, month_str: str,
 
 
 # ============================================================
-# ④ データ暗号化
+# ④ ニュース取得（Google News RSS）
+# ============================================================
+def fetch_news(query: str, max_items: int = 8) -> list:
+    """Google News RSSからニュースを取得（APIキー不要）"""
+    url = f'https://news.google.com/rss/search?q={requests.utils.quote(query)}&hl=ja&gl=JP&ceid=JP:ja'
+    try:
+        resp = requests.get(url, timeout=20, headers={'User-Agent': 'Mozilla/5.0'})
+        if resp.status_code != 200:
+            print(f'[WARN] News RSS {resp.status_code}: {query}')
+            return []
+        root = ET.fromstring(resp.content)
+        items = []
+        for item in root.findall('.//item')[:max_items]:
+            title = item.findtext('title', '').split(' - ')[0].strip()
+            link  = item.findtext('link', '')
+            pub   = item.findtext('pubDate', '')
+            src   = item.findtext('source', '')
+            if title:
+                items.append({'title': title, 'link': link, 'pubDate': pub, 'source': src})
+        return items
+    except Exception as e:
+        print(f'[ERROR] fetch_news: {e}')
+        return []
+
+
+# ============================================================
+# ⑤ Chatwork振り返り（くまお/YutoKato発言分析）
+# ============================================================
+def build_cw_review(raw_msgs_by_room: dict, month_str: str) -> dict:
+    """くまお/YutoKatoの発言を収集しClaudeで振り返り分析"""
+    client = anthropic.Anthropic(api_key=CLAUDE_API_KEY)
+
+    my_messages = []
+    room_counts  = {}
+
+    for room_name, msgs in raw_msgs_by_room.items():
+        for msg in msgs:
+            acc_id = msg.get('account', {}).get('account_id', 0)
+            if acc_id in CW_REVIEW_IDS:
+                body = sanitize(msg.get('body', '').strip())
+                if not body:
+                    continue
+                dt = datetime.fromtimestamp(msg.get('send_time', 0), tz=JST)
+                my_messages.append({'room': room_name, 'dt': dt, 'body': body})
+                room_counts[room_name] = room_counts.get(room_name, 0) + 1
+
+    total = len(my_messages)
+    if my_messages:
+        dts      = [m['dt'] for m in my_messages]
+        earliest = min(dts).strftime('%H:%M')
+        latest   = max(dts).strftime('%H:%M')
+    else:
+        earliest = latest = '--:--'
+
+    room_summary = sorted(room_counts.items(), key=lambda x: -x[1])[:10]
+
+    # Claude分析用テキスト（直近100件）
+    recent = sorted(my_messages, key=lambda m: m['dt'])[-100:]
+    log_text = '\n'.join(
+        f'[{m["dt"].strftime("%m/%d %H:%M")}][{m["room"]}] {m["body"]}'
+        for m in recent
+    )
+
+    fallback = {
+        'totalMessages': total,
+        'earliest': earliest,
+        'latest': latest,
+        'roomSummary': [{'room': r, 'count': c} for r, c in room_summary],
+        'achievements': [], 'inProgress': [], 'decisions': [],
+        'carryOver': [], 'qualityNote': '分析データなし', 'suggestions': [],
+    }
+    if total == 0:
+        return fallback
+
+    prompt = f"""あなたはYutoKato（くまお）さんのコミュニケーションコーチです。
+以下は{month_str}のYutoKatoさんのChatwork発言ログ（直近100件）です。
+
+{log_text}
+
+---
+以下のJSON形式で振り返り分析してください。各項目は50字以内、配列は最大4件。
+
+{{
+  "achievements": ["完了・解決したこと1", "2"],
+  "inProgress":   ["進行中の課題1", "2"],
+  "decisions":    ["下した意思決定1", "2"],
+  "carryOver":    ["翌日以降に持ち越す事項1", "2"],
+  "qualityNote":  "コミュニケーション品質・傾向（50字以内）",
+  "suggestions":  ["改善提案1（具体的に）", "2"]
+}}
+
+JSONのみ返してください。"""
+
+    try:
+        msg = client.messages.create(
+            model='claude-sonnet-4-6', max_tokens=2000,
+            messages=[{'role': 'user', 'content': prompt}]
+        )
+        text = msg.content[0].text.strip()
+        text = re.sub(r'^```(?:json)?\s*', '', text)
+        text = re.sub(r'\s*```$', '', text)
+        start, end = text.find('{'), text.rfind('}')
+        if start != -1 and end != -1:
+            parsed = json.loads(text[start:end+1])
+            fallback.update(parsed)
+    except Exception as e:
+        print(f'[ERROR] CW review Claude: {e}')
+
+    return fallback
+
+
+# ============================================================
+# ⑥ Googleカレンダー分析
+# ============================================================
+def fetch_calendar_events(ical_url: str, days: int = 14) -> list:
+    """iCal URLからGoogleカレンダーのイベントを取得"""
+    if not ical_url or not HAS_ICALENDAR:
+        return []
+    try:
+        resp = requests.get(ical_url, timeout=30)
+        if resp.status_code != 200:
+            print(f'[WARN] Calendar iCal HTTP {resp.status_code}')
+            return []
+        cal  = iCalendar.from_ical(resp.content)
+        now  = datetime.now(JST)
+        start_limit = now - timedelta(days=days)
+        events = []
+        for component in cal.walk():
+            if component.name != 'VEVENT':
+                continue
+            dtstart = component.get('DTSTART')
+            if not dtstart:
+                continue
+            dt = dtstart.dt
+            # date型をdatetimeに変換
+            if not hasattr(dt, 'hour'):
+                dt = datetime(dt.year, dt.month, dt.day, tzinfo=JST)
+            elif dt.tzinfo is None:
+                dt = dt.replace(tzinfo=JST)
+            else:
+                dt = dt.astimezone(JST)
+            if dt < start_limit or dt > now + timedelta(days=7):
+                continue
+            summary  = str(component.get('SUMMARY', ''))
+            location = str(component.get('LOCATION', ''))
+            dtend    = component.get('DTEND')
+            duration = ''
+            if dtend:
+                de = dtend.dt
+                if not hasattr(de, 'hour'):
+                    de = datetime(de.year, de.month, de.day, tzinfo=JST)
+                elif de.tzinfo is None:
+                    de = de.replace(tzinfo=JST)
+                else:
+                    de = de.astimezone(JST)
+                minutes = int((de - dt).total_seconds() / 60)
+                duration = f'{minutes}分'
+            events.append({
+                'dt': dt.strftime('%m/%d(%a) %H:%M'),
+                'summary': summary,
+                'location': location,
+                'duration': duration,
+                'isPast': dt < now,
+            })
+        events.sort(key=lambda e: e['dt'])
+        return events
+    except Exception as e:
+        print(f'[ERROR] fetch_calendar_events: {e}')
+        return []
+
+
+def analyze_calendar_with_claude(events: list, month_str: str) -> dict:
+    """カレンダーイベントをClaudeで分析して時間活用の提案を出す"""
+    client = anthropic.Anthropic(api_key=CLAUDE_API_KEY)
+    fallback = {'summary': '', 'suggestions': [], 'stats': {}}
+    if not events:
+        return fallback
+
+    past   = [e for e in events if e['isPast']]
+    future = [e for e in events if not e['isPast']]
+
+    ev_text = '【過去2週間の予定】\n'
+    ev_text += '\n'.join(f'  {e["dt"]} {e["summary"]} {e["duration"]}' for e in past[-30:])
+    ev_text += '\n\n【今後7日間の予定】\n'
+    ev_text += '\n'.join(f'  {e["dt"]} {e["summary"]} {e["duration"]}' for e in future[:20])
+
+    prompt = f"""あなたは時間管理コーチです。
+株式会社WinforceのCEO YutoKatoさんの{month_str}のGoogleカレンダーを分析してください。
+
+{ev_text}
+
+以下のJSON形式で返してください。各項目は60字以内、配列は最大4件。
+
+{{
+  "summary": "時間活用の全体評価（60字以内）",
+  "suggestions": [
+    "改善提案1（具体的に・誰が何をいつまでに）",
+    "改善提案2",
+    "改善提案3"
+  ],
+  "stats": {{
+    "meetingCount": 会議・打合せ件数（数値）,
+    "focusBlocks": "まとまった集中時間の有無（あり/なし/不明）",
+    "busiestDay": "最も予定が多い曜日"
+  }}
+}}
+
+JSONのみ返してください。"""
+
+    try:
+        msg = client.messages.create(
+            model='claude-sonnet-4-6', max_tokens=1500,
+            messages=[{'role': 'user', 'content': prompt}]
+        )
+        text = msg.content[0].text.strip()
+        text = re.sub(r'^```(?:json)?\s*', '', text)
+        text = re.sub(r'\s*```$', '', text)
+        start, end = text.find('{'), text.rfind('}')
+        if start != -1 and end != -1:
+            return json.loads(text[start:end+1])
+    except Exception as e:
+        print(f'[ERROR] Calendar Claude: {e}')
+    return fallback
+
+
+# ============================================================
+# ⑦ データ暗号化
 # ============================================================
 SALT = b'wf_report_2026__'  # 16bytes固定（index.htmlと同じ）
 
@@ -619,22 +855,23 @@ def main():
 
     # 2. Chatworkメッセージ取得
     print('Chatworkメッセージ取得中...')
-    chatwork_logs = {}
+    chatwork_logs   = {}
+    raw_msgs_by_room = {}  # CW振り返り用（ルーム名 → rawメッセージ一覧）
     token_map = {'TOKEN_1': CW_TOKEN_1, 'TOKEN_2': CW_TOKEN_2}
 
     all_accounts = {}  # account_id -> {'name': ..., 'rooms': set()}
 
     for room_cfg in CHATWORK_ROOMS:
-        token = token_map[room_cfg['token']]
+        token   = token_map[room_cfg['token']]
         room_id = room_cfg['room_id']
-        biz_id = room_cfg['biz_id']
+        biz_id  = room_cfg['biz_id']
 
         msgs = get_chatwork_messages(token, room_id)
         print(f"  {room_cfg['name']}: {len(msgs)}件")
 
         # account_id収集（組織図スプレッドシート作成用）
         for msg in msgs:
-            acc = msg.get('account', {})
+            acc    = msg.get('account', {})
             acc_id = acc.get('account_id')
             if acc_id:
                 if acc_id not in all_accounts:
@@ -642,6 +879,7 @@ def main():
                 all_accounts[acc_id]['rooms'].add(room_cfg['name'])
 
         if msgs:
+            raw_msgs_by_room[room_cfg['name']] = msgs
             text = format_messages(msgs, room_cfg['name'], account_map)
             if biz_id not in chatwork_logs:
                 chatwork_logs[biz_id] = []
@@ -654,7 +892,29 @@ def main():
         print(f'  account_id: {acc_id}  名前: {info["name"]}  ルーム: {rooms}')
     print('=== 一覧終わり ===\n')
 
-    # 3. Claude分析
+    # 2b. ニュース取得
+    print('ニュース取得中...')
+    news_economic  = fetch_news('日本 経済 ビジネス')
+    news_logistics = fetch_news('物流 配送 ドライバー 運送')
+    print(f'  経済ニュース: {len(news_economic)}件 / 物流ニュース: {len(news_logistics)}件')
+
+    # 2c. CW振り返り
+    print('CW振り返り分析中（くまお/YutoKato）...')
+    cw_review = build_cw_review(raw_msgs_by_room, month_str)
+    print(f'  発言数: {cw_review["totalMessages"]}件')
+
+    # 2d. Googleカレンダー
+    calendar_data = {'events': [], 'analysis': {}}
+    if GCAL_ICAL_URL:
+        print('Googleカレンダー取得中...')
+        cal_events = fetch_calendar_events(GCAL_ICAL_URL)
+        print(f'  イベント: {len(cal_events)}件')
+        cal_analysis = analyze_calendar_with_claude(cal_events, month_str)
+        calendar_data = {'events': cal_events, 'analysis': cal_analysis}
+    else:
+        print('[INFO] GCAL_ICAL_URL未設定 → カレンダー機能スキップ')
+
+    # 3. Claude分析（経営）
     print('Claude APIで経営分析中...')
     analysis = analyze_with_claude(financials, chatwork_logs, month_str, staff_by_dept)
 
@@ -678,6 +938,12 @@ def main():
         'topRisks':            analysis.get('topRisks', []),
         'actionPlans':         analysis.get('actionPlans', {'month1': [], 'month3': [], 'month6': []}),
         'overallStaffStatus':  analysis.get('overallStaffStatus', []),
+        'news': {
+            'economic':  news_economic,
+            'logistics': news_logistics,
+        },
+        'cwReview':  cw_review,
+        'calendar':  calendar_data,
         'overall': {
             'totalRevenue':        overall_revenue,
             'totalRevenueAnnual':  financials.get('_overall_revenue_annual', 0),
