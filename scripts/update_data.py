@@ -411,17 +411,18 @@ def list_cw_rooms(token: str) -> list:
 
 
 def fetch_today_cw_review_msgs(token1: str, token2: str, target_date: datetime) -> dict:
-    """くまお/YutoKatoの全ルームから当日メッセージを収集
+    """くまお/YutoKatoの全ルームから当日メッセージを並列収集
 
     - TOKEN_1 (YutoKato, ~79室): 全室対象
-    - TOKEN_2 (くまお, ~2600室): スキップ条件でフィルタ後150室まで
+    - TOKEN_2 (くまお, ~2600室): スキップ条件でフィルタ後100室まで
     Returns: {room_name: [msg_dict, ...]}  当日メッセージがあったルームのみ
     """
-    import time as _time
+    from concurrent.futures import ThreadPoolExecutor, as_completed
 
-    SKIP_KEYWORDS   = ['閉鎖', '旧', '通知', 'SPOT', 'LC通知']
+    SKIP_KEYWORDS     = ['閉鎖', '旧', '通知', 'SPOT', 'LC通知']
     PRIORITY_KEYWORDS = ['WF', 'リベクリ', '就労', '訪看']
-    MAX_KUMAO_ROOMS = 150
+    MAX_KUMAO_ROOMS   = 100
+    MAX_WORKERS       = 8   # 並列スレッド数（レート制限に配慮）
 
     # 当日のJST日付範囲
     day_start = target_date.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -429,10 +430,8 @@ def fetch_today_cw_review_msgs(token1: str, token2: str, target_date: datetime) 
     ts_start  = int(day_start.timestamp())
     ts_end    = int(day_end.timestamp())
 
-    result = {}
-
     def _fetch_room_msgs(token, room_id, room_name):
-        """指定ルームの当日メッセージを取得（なければ空リスト）"""
+        """指定ルームの当日メッセージを取得（なければ None）"""
         try:
             resp = requests.get(
                 f'{CW_BASE}/rooms/{room_id}/messages',
@@ -441,37 +440,43 @@ def fetch_today_cw_review_msgs(token1: str, token2: str, target_date: datetime) 
                 timeout=20
             )
             if resp.status_code != 200:
-                return []
+                return room_name, []
             msgs = resp.json()
-            today_msgs = [m for m in msgs if ts_start <= m.get('send_time', 0) <= ts_end]
-            return today_msgs
+            today = [m for m in msgs if ts_start <= m.get('send_time', 0) <= ts_end]
+            return room_name, today
         except Exception:
-            return []
+            return room_name, []
+
+    def _parallel_fetch(token, rooms):
+        """ルームリストからメッセージを並列取得して dict を返す"""
+        tasks = [(token, str(r.get('room_id', '')), r.get('name') or f'room_{r.get("room_id","")}')
+                 for r in rooms]
+        result = {}
+        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
+            futures = {ex.submit(_fetch_room_msgs, t, rid, rname): rname
+                       for t, rid, rname in tasks}
+            for fut in as_completed(futures):
+                rname, msgs = fut.result()
+                if msgs:
+                    result[rname] = result.get(rname, []) + msgs
+        return result
 
     # ── TOKEN_1: YutoKato（全室）──
     print('  [CW振り返り] YutoKato ルーム一覧取得中...')
     rooms1 = list_cw_rooms(token1)
-    print(f'  → {len(rooms1)}室')
-    for room in rooms1:
-        room_id   = str(room.get('room_id', ''))
-        room_name = room.get('name') or f'room_{room_id}'
-        _time.sleep(0.25)  # レート制限回避
-        msgs = _fetch_room_msgs(token1, room_id, room_name)
-        if msgs:
-            result[room_name] = result.get(room_name, []) + msgs
+    print(f'  → {len(rooms1)}室 並列取得開始')
+    result = _parallel_fetch(token1, rooms1)
 
-    # ── TOKEN_2: くまお（フィルタ後150室）──
+    # ── TOKEN_2: くまお（フィルタ後100室）──
     print('  [CW振り返り] くまお ルーム一覧取得中...')
     rooms2 = list_cw_rooms(token2)
     print(f'  → {len(rooms2)}室（フィルタ前）')
 
-    # スキップ条件
     filtered = [
         r for r in rooms2
         if not any(kw in (r.get('name') or '') for kw in SKIP_KEYWORDS)
     ]
 
-    # 優先度ソート: DM (type=direct) > 優先キーワード含むグループ > その他
     def _room_priority(r):
         name = r.get('name') or ''
         if r.get('type') == 'direct':
@@ -482,16 +487,11 @@ def fetch_today_cw_review_msgs(token1: str, token2: str, target_date: datetime) 
 
     filtered.sort(key=_room_priority)
     target_rooms2 = filtered[:MAX_KUMAO_ROOMS]
-    print(f'  → {len(target_rooms2)}室（フィルタ後）')
+    print(f'  → {len(target_rooms2)}室（フィルタ後）並列取得開始')
 
-    for room in target_rooms2:
-        room_id   = str(room.get('room_id', ''))
-        room_name = room.get('name') or f'room_{room_id}'
-        _time.sleep(0.25)
-        msgs = _fetch_room_msgs(token2, room_id, room_name)
-        if msgs:
-            # 同名ルームがYutoKato側にもあれば統合
-            result[room_name] = result.get(room_name, []) + msgs
+    result2 = _parallel_fetch(token2, target_rooms2)
+    for rname, msgs in result2.items():
+        result[rname] = result.get(rname, []) + msgs
 
     active = len(result)
     total  = sum(len(v) for v in result.values())
