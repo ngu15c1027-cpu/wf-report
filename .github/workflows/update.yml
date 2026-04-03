@@ -36,6 +36,7 @@ jobs:
           SHEET_ID:             ${{ secrets.SHEET_ID }}
           DASHBOARD_PASSWORD:   ${{ secrets.DASHBOARD_PASSWORD }}
           ORG_SHEET_ID:         ${{ secrets.ORG_SHEET_ID }}
+          GCAL_ICAL_URL:        ${{ secrets.GCAL_ICAL_URL }}
         run: python scripts/update_data.py
 
       - name: Commit and push data.enc
