@@ -938,6 +938,9 @@ def build_cw_review(raw_msgs_by_room: dict, month_str: str,
 
     my_msgs_yesterday = []  # 前日のみの自分の発言（活動時刻用）
 
+    # 自分宛の返信パターン（[rp aid=自分のID ...]）
+    my_reply_patterns = [f'[rp aid={aid}' for aid in CW_REVIEW_IDS]
+
     for room_name, msgs in raw_msgs_by_room.items():
         is_dm = room_name in _dm_rooms  # ルーム一覧APIのtypeフィールドで確定済み
 
@@ -950,16 +953,17 @@ def build_cw_review(raw_msgs_by_room: dict, month_str: str,
             send_ts = msg.get('send_time', 0)
 
             if acc_id in CW_REVIEW_IDS:
-                # 自分の発言
+                # 自分の発言 → 無条件でカウント
                 my_messages.append({'room': room_name, 'dt': dt, 'body': body})
+                room_counts[room_name] = room_counts.get(room_name, 0) + 1
                 if yd_start and yd_start <= send_ts <= yd_end:
                     my_msgs_yesterday.append(dt)
             else:
-                # 他者の発言：自分へのTo or 返信([rp aid=]) or DM のみカウント
                 received_total += 1
-                has_to_me  = any(pat in body for pat in my_id_patterns)
-                has_reply  = '[rp aid=' in body  # Chatwork正式フォーマット
-                if has_to_me or has_reply or is_dm:
+                # 他者の発言：自分へのTo / 自分へのReply / DM のみカウント
+                has_to_me       = any(pat in body for pat in my_id_patterns)
+                has_reply_to_me = any(pat in body for pat in my_reply_patterns)
+                if has_to_me or has_reply_to_me or is_dm:
                     room_counts[room_name] = room_counts.get(room_name, 0) + 1
 
     total = len(my_messages)
