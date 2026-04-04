@@ -682,9 +682,13 @@ def analyze_with_claude(financials: dict, chatwork_logs: dict, month_str: str,
 # ============================================================
 # ④ ニュース取得（Google News RSS）
 # ============================================================
-def fetch_news(query: str, max_items: int = 8) -> list:
-    """Google News RSSからニュースを取得（APIキー不要）"""
+def fetch_news(query: str, max_items: int = 8, max_age_days: int = 30) -> list:
+    """Google News RSSからニュースを取得（APIキー不要）
+    max_age_days: この日数より古い記事は除外（デフォルト30日）
+    """
+    from email.utils import parsedate_to_datetime
     url = f'https://news.google.com/rss/search?q={requests.utils.quote(query)}&hl=ja&gl=JP&ceid=JP:ja'
+    cutoff = datetime.now(timezone.utc) - timedelta(days=max_age_days)
     try:
         resp = requests.get(url, timeout=20, headers={'User-Agent': 'Mozilla/5.0'})
         if resp.status_code != 200:
@@ -692,13 +696,23 @@ def fetch_news(query: str, max_items: int = 8) -> list:
             return []
         root = ET.fromstring(resp.content)
         items = []
-        for item in root.findall('.//item')[:max_items]:
+        for item in root.findall('.//item'):
+            if len(items) >= max_items:
+                break
             title = item.findtext('title', '').split(' - ')[0].strip()
             link  = item.findtext('link', '')
             pub   = item.findtext('pubDate', '')
             src   = item.findtext('source', '')
-            if title:
-                items.append({'title': title, 'link': link, 'pubDate': pub, 'source': src})
+            if not title:
+                continue
+            if pub:
+                try:
+                    pub_dt = parsedate_to_datetime(pub)
+                    if pub_dt < cutoff:
+                        continue
+                except Exception:
+                    pass  # パース失敗は通過させる
+            items.append({'title': title, 'link': link, 'pubDate': pub, 'source': src})
         return items
     except Exception as e:
         print(f'[ERROR] fetch_news: {e}')
