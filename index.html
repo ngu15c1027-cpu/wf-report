@@ -336,6 +336,47 @@ body {
 .sales-table td:first-child { text-align: left; font-weight: 600; }
 .sales-table tr:last-child td { border-bottom: none; }
 
+/* ---- Mental Management ---- */
+.condition-bar {
+  display: flex; align-items: center; gap: 16px;
+  background: var(--card); border-radius: var(--radius); border: 1px solid var(--border);
+  box-shadow: var(--shadow); padding: 24px 28px; margin-bottom: 20px;
+}
+.condition-score {
+  width: 72px; height: 72px; border-radius: 50%; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 28px; font-weight: 900; color: white;
+}
+.condition-score.s5 { background: var(--success); }
+.condition-score.s4 { background: #4ade80; }
+.condition-score.s3 { background: var(--warning); }
+.condition-score.s2 { background: #f97316; }
+.condition-score.s1 { background: var(--danger); }
+.condition-label { font-size: 18px; font-weight: 800; margin-bottom: 4px; }
+.condition-note  { font-size: 13px; color: var(--text-light); line-height: 1.6; }
+.rest-alert {
+  background: #fef2f2; border: 2px solid var(--danger); border-radius: var(--radius);
+  padding: 16px 20px; margin-bottom: 20px; display: flex; align-items: center; gap: 12px;
+}
+.rest-alert .rest-icon { font-size: 28px; flex-shrink: 0; }
+.rest-alert .rest-msg  { font-size: 14px; font-weight: 700; color: #991b1b; line-height: 1.6; }
+.advice-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px; }
+.advice-item {
+  background: var(--primary-light); border-left: 4px solid var(--primary);
+  border-radius: 8px; padding: 14px 18px; font-size: 14px; line-height: 1.7;
+  display: flex; align-items: flex-start; gap: 10px;
+}
+.advice-num {
+  background: var(--primary); color: white; border-radius: 50%;
+  width: 22px; height: 22px; display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 800; flex-shrink: 0; margin-top: 1px;
+}
+.mbti-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: #ede9fe; color: #5b21b6; border-radius: 8px;
+  padding: 4px 12px; font-size: 12px; font-weight: 700; margin-bottom: 12px;
+}
+
 /* ---- News ---- */
 .news-list { display: flex; flex-direction: column; gap: 8px; }
 .news-item {
@@ -394,6 +435,7 @@ body {
     <div class="nav-tab active" onclick="showPage('overall',this)">🏢 全社サマリー</div>
     <div class="nav-tab" onclick="showPage('news',this)">📰 ニュース</div>
     <div class="nav-tab" onclick="showPage('cwreview',this)">💬 CW振り返り</div>
+    <div class="nav-tab" onclick="showPage('mental',this)">🧠 マネジメント</div>
     <div class="nav-tab" onclick="showPage('calendar',this)">📅 カレンダー</div>
     <div class="nav-tab" onclick="showPage('media',this)">
       <span class="nav-dot" style="background:#3b82f6"></span>メディア運用事業
@@ -425,6 +467,11 @@ body {
   <!-- ===== CW振り返り ===== -->
   <div class="page" id="page-cwreview">
     <div id="cwreviewContent"><div class="loading">読み込み中...</div></div>
+  </div>
+
+  <!-- ===== マネジメント ===== -->
+  <div class="page" id="page-mental">
+    <div id="mentalContent"><div class="loading">読み込み中...</div></div>
   </div>
 
   <!-- ===== カレンダー ===== -->
@@ -568,6 +615,7 @@ function renderAll(d) {
     function(){ renderOverall(d); },
     function(){ renderNews(d.news || {}); },
     function(){ renderCwReview(d.cwReview || {}); },
+    function(){ renderMental(d.mentalManagement || {}); },
     function(){ renderCalendar(d.calendar || {}); },
   ];
   renders.forEach(function(fn) { try { fn(); } catch(e) { console.error('render error:', e); } });
@@ -1049,6 +1097,80 @@ function renderCwReview(r) {
   }
   html += '</div>';
   document.getElementById('cwreviewContent').innerHTML = html;
+}
+
+// ================================================================
+// マネジメント描画
+// ================================================================
+function renderMental(m) {
+  var html = '';
+  html += '<div class="section"><div class="section-header">'
+    + '<div class="section-icon" style="background:#7c3aed">🧠</div>'
+    + '<h2 class="section-title">メンタルマネジメント</h2></div>';
+
+  html += '<div class="mbti-badge">🔖 ISFJ（擁護者）ベース分析</div>';
+
+  if (!m.conditionLabel || m.conditionLabel === 'データ取得中') {
+    html += '<div class="no-data">データを収集中です。次回の更新後に表示されます。</div>';
+    html += '</div>';
+    document.getElementById('mentalContent').innerHTML = html;
+    return;
+  }
+
+  // コンディションスコア
+  var score = m.conditionScore || 3;
+  var sCls  = 's' + Math.min(5, Math.max(1, score));
+  var sColor = score >= 4 ? 'var(--success)' : score === 3 ? 'var(--warning)' : 'var(--danger)';
+  html += '<div class="condition-bar">'
+    + '<div class="condition-score ' + sCls + '">' + score + '</div>'
+    + '<div>'
+    + '<div class="condition-label" style="color:' + sColor + '">' + esc(m.conditionLabel || '') + '</div>'
+    + '<div class="condition-note">' + esc(m.conditionNote || '') + '</div>'
+    + '</div></div>';
+
+  // 休養シグナル
+  if (m.restSignal) {
+    html += '<div class="rest-alert">'
+      + '<div class="rest-icon">🛑</div>'
+      + '<div class="rest-msg">【休養シグナル検知】' + esc(m.restMessage || '意識的に休む時間を確保してください。') + '</div>'
+      + '</div>';
+  } else if (m.restMessage) {
+    html += '<div class="analysis-summary" style="margin-bottom:20px">'
+      + '<div class="label">💬 今日のメッセージ</div>' + esc(m.restMessage) + '</div>';
+  }
+
+  // 今日意識すること
+  if ((m.todayAdvice || []).length) {
+    html += '<div class="section-header" style="margin-bottom:12px">'
+      + '<div class="section-icon" style="background:#7c3aed;font-size:13px">✨</div>'
+      + '<h2 class="section-title">今日意識すること</h2></div>';
+    html += '<div class="advice-list">';
+    m.todayAdvice.forEach(function(a, i) {
+      html += '<div class="advice-item">'
+        + '<div class="advice-num">' + (i+1) + '</div>'
+        + esc(a) + '</div>';
+    });
+    html += '</div>';
+  }
+
+  // バーンアウトリスクサイン
+  if ((m.burnoutRisks || []).length) {
+    html += '<div class="section-header" style="margin-bottom:12px">'
+      + '<div class="section-icon" style="background:var(--warning);font-size:13px">⚠️</div>'
+      + '<h2 class="section-title">検出されたリスクサイン</h2></div>';
+    html += '<div class="analysis-card" style="border-left:4px solid var(--warning)"><ul>';
+    m.burnoutRisks.forEach(function(r){ html += '<li>' + esc(r) + '</li>'; });
+    html += '</ul></div>';
+  }
+
+  // 週間トレンド
+  if (m.weeklyTrend) {
+    html += '<div class="analysis-summary" style="margin-top:16px">'
+      + '<div class="label">📈 週間トレンド</div>' + esc(m.weeklyTrend) + '</div>';
+  }
+
+  html += '</div>';
+  document.getElementById('mentalContent').innerHTML = html;
 }
 
 // ================================================================

@@ -1126,7 +1126,129 @@ JSONのみ返してください。"""
 
 
 # ============================================================
-# ⑦ データ暗号化
+# ⑦ メンタルマネジメント分析（ISFJ特性ベース）
+# ============================================================
+MBTI_PROFILE = """
+【MBTIタイプ】ISFJ（擁護者）
+【特性】
+- 内向型: 大量の対人コミュニケーションで消耗しやすい。一人の時間でエネルギー回復
+- 感情型: 他者の期待に応えようとしすぎて自分のニーズを後回しにする傾向
+- 判断型: 計画・秩序を好む。予期せぬ変化や割り込みタスクにストレスを感じやすい
+【バーンアウトリスクサイン】
+- 深夜・早朝（22時以降、6時以前）の発言増加
+- 1日の発言数が急増（過負荷）または急減（引きこもり傾向）
+- 同じルームへの高頻度返信（特定人物への過度な気遣い消耗）
+- カレンダーの予定が連日続き空白時間がない
+【回復のヒント】
+- 短時間でも一人になれる時間を意識的に確保する
+- 「ありがとう」と言われる体験が心の充電になる
+- 完璧にこなそうとせず「80点で十分」と意識する
+"""
+
+def analyze_mental_management(cw_review: dict, calendar_data: dict,
+                               month_str: str) -> dict:
+    """CWログ・カレンダーデータからISFJメンタルマネジメント分析を実行"""
+    client = anthropic.Anthropic(api_key=CLAUDE_API_KEY)
+
+    # CWデータの要約
+    total_msgs    = cw_review.get('totalMessages', 0)
+    received_msgs = cw_review.get('receivedMessages', 0)
+    active_rooms  = cw_review.get('activeRooms', 0)
+    earliest      = cw_review.get('earliest', '--:--')
+    latest        = cw_review.get('latest', '--:--')
+    room_summary  = cw_review.get('roomSummary', [])
+
+    # 過負荷指標の計算
+    late_night = False
+    early_morning = False
+    try:
+        if latest != '--:--':
+            h = int(latest.split(':')[0])
+            if h >= 22 or h < 6:
+                late_night = True
+        if earliest != '--:--':
+            h = int(earliest.split(':')[0])
+            if h < 7:
+                early_morning = True
+    except Exception:
+        pass
+
+    # カレンダー情報
+    cal_events  = calendar_data.get('events', [])
+    future_evts = [e for e in cal_events if not e.get('isPast')]
+    past_evts   = [e for e in cal_events if e.get('isPast')]
+    cal_summary = f'今後7日の予定: {len(future_evts)}件 / 過去2週間の実績: {len(past_evts)}件'
+
+    top_rooms_txt = '\n'.join(
+        f'  {i+1}. {r["room"]}（{r["count"]}件）'
+        for i, r in enumerate(room_summary[:5])
+    )
+
+    prompt = f"""あなたはメンタルヘルスコーチです。以下のデータをもとに、ISFJ型経営者のメンタルマネジメントレポートをJSONで作成してください。
+
+{MBTI_PROFILE}
+
+【直近のChatwork活動データ（{month_str}）】
+- 自分の発言数: {total_msgs}件
+- 受信メッセージ数: {received_msgs}件
+- アクティブルーム数: {active_rooms}室
+- 活動開始: {earliest} / 活動終了: {latest}
+- 深夜発言(22時以降): {'あり ⚠' if late_night else 'なし'}
+- 早朝発言(7時前): {'あり ⚠' if early_morning else 'なし'}
+- 上位ルーム:
+{top_rooms_txt}
+
+【カレンダー】
+{cal_summary}
+{chr(10).join('  ' + e['dt'] + ' ' + e['summary'] for e in future_evts[:7])}
+
+---
+以下のJSON形式で返してください。
+
+{{
+  "conditionScore": 1〜5の数値（5=良好、1=要注意）,
+  "conditionLabel": "良好 / やや疲労 / 注意 / 要休養 のいずれか",
+  "conditionNote": "現在のコンディション評価の根拠（60字以内）",
+  "burnoutRisks": ["検出されたリスクサイン1（具体的に）", "2"],
+  "todayAdvice": ["今日意識すること1（ISFJの特性に沿った具体的アドバイス）", "2", "3"],
+  "restSignal": true/false （今すぐ休養を優先すべきか）,
+  "restMessage": "休養メッセージまたは励ましのメッセージ（50字以内）",
+  "weeklyTrend": "活動量・コミュニケーションパターンの傾向コメント（60字以内）"
+}}
+
+JSONのみ返してください。"""
+
+    fallback = {
+        'conditionScore': 3,
+        'conditionLabel': 'データ取得中',
+        'conditionNote': 'データを収集しています。',
+        'burnoutRisks': [],
+        'todayAdvice': ['今日も無理せず、一つひとつ丁寧に取り組んでください。'],
+        'restSignal': False,
+        'restMessage': 'データを更新中です。',
+        'weeklyTrend': '',
+    }
+
+    try:
+        msg = client.messages.create(
+            model='claude-sonnet-4-6', max_tokens=1500,
+            messages=[{'role': 'user', 'content': prompt}]
+        )
+        text = msg.content[0].text.strip()
+        text = re.sub(r'^```(?:json)?\s*', '', text)
+        text = re.sub(r'\s*```$', '', text)
+        start, end = text.find('{'), text.rfind('}')
+        if start != -1 and end != -1:
+            parsed = json.loads(text[start:end+1])
+            fallback.update(parsed)
+    except Exception as e:
+        print(f'[ERROR] analyze_mental_management: {e}')
+
+    return fallback
+
+
+# ============================================================
+# ⑧ データ暗号化
 # ============================================================
 SALT = b'wf_report_2026__'  # 16bytes固定（index.htmlと同じ）
 
@@ -1255,6 +1377,11 @@ def main():
     else:
         print('[INFO] GCAL_ICAL_URL未設定 → カレンダー機能スキップ')
 
+    # 2e. メンタルマネジメント分析
+    print('メンタルマネジメント分析中（ISFJ）...')
+    mental_management = analyze_mental_management(cw_review, calendar_data, month_str)
+    print(f'  コンディション: {mental_management.get("conditionLabel", "?")}（スコア{mental_management.get("conditionScore", "?")}）')
+
     # 3. Claude分析（経営）
     print('Claude APIで経営分析中...')
     analysis = analyze_with_claude(financials, chatwork_logs, month_str, staff_by_dept)
@@ -1284,8 +1411,9 @@ def main():
             'economic':      news_economic,
             'logistics':     news_logistics,
         },
-        'cwReview':  cw_review,
-        'calendar':  calendar_data,
+        'cwReview':         cw_review,
+        'calendar':         calendar_data,
+        'mentalManagement': mental_management,
         'overall': {
             'totalRevenue':        overall_revenue,
             'totalRevenueAnnual':  financials.get('_overall_revenue_annual', 0),
