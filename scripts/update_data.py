@@ -978,15 +978,33 @@ def build_cw_review(raw_msgs_by_room: dict, month_str: str,
         earliest = latest = '--:--'
         active_hours = '--'
 
-    room_summary = sorted(room_counts.items(), key=lambda x: -x[1])[:10]
+    # TOP10ルーム（To/返信/DM件数順）
+    top_rooms_by_contact = sorted(room_counts.items(), key=lambda x: -x[1])[:10]
     active_rooms = len([r for r, msgs in raw_msgs_by_room.items() if msgs])
 
-    # Claude分析用テキスト（直近100件）
+    # TOP10ルームのメッセージをまとめて取得（トピック生成用）
+    room_logs = {}
+    for room_name, _ in top_rooms_by_contact:
+        msgs_in_room = raw_msgs_by_room.get(room_name, [])
+        lines = []
+        for m in sorted(msgs_in_room, key=lambda x: x.get('send_time', 0)):
+            body = sanitize(m.get('body', '').strip())
+            if body:
+                lines.append(body[:80])  # 1メッセージ80字以内
+        if lines:
+            room_logs[room_name] = '\n'.join(lines[:15])  # 最大15件
+
+    # Claude分析用テキスト（直近100件・全体振り返り用）
     recent = sorted(my_messages, key=lambda m: m['dt'])[-100:]
     log_text = '\n'.join(
         f'[{m["dt"].strftime("%m/%d %H:%M")}][{m["room"]}] {m["body"]}'
         for m in recent
     )
+
+    # ルーム別ログテキスト（トピック生成用）
+    room_log_text = ''
+    for room_name, log in room_logs.items():
+        room_log_text += f'\n【{room_name}】\n{log}\n'
 
     fallback = {
         'totalMessages':    total,
@@ -996,7 +1014,7 @@ def build_cw_review(raw_msgs_by_room: dict, month_str: str,
         'earliest':         earliest,
         'latest':           latest,
         'activeHours':      active_hours,
-        'roomSummary': [{'room': r, 'count': c} for r, c in room_summary],
+        'roomSummary': [{'room': r, 'count': c, 'topic': ''} for r, c in top_rooms_by_contact],
         'achievements': [], 'inProgress': [], 'decisions': [],
         'carryOver': [], 'qualityAlerts': [], 'qualityNote': '分析データなし',
         'suggestions': [],
@@ -1005,14 +1023,25 @@ def build_cw_review(raw_msgs_by_room: dict, month_str: str,
         return fallback
 
     prompt = f"""あなたはYutoKato（くまお）さんのコミュニケーションコーチです。
-以下は{month_str}のYutoKatoさんのChatwork発言ログ（直近100件）です。
+以下は{month_str}のYutoKatoさんのChatwork活動ログです。
 
+【全体ログ（直近100件）】
 {log_text}
 
+【ルーム別ログ（TOP10ルームの会話内容）】
+{room_log_text}
+
 ---
-以下のJSON形式で振り返り分析してください。各項目は50字以内、配列は最大5件。
+以下のJSON形式で振り返り分析してください。
+
+- roomTopics: 各ルームの主なトピックを60字以内で要約（個人名・機密情報は職種や役割で表現）
+- その他の配列項目は最大5件、各50字以内
 
 {{
+  "roomTopics": {{
+    "ルーム名1": "主なトピックの要約（60字以内）",
+    "ルーム名2": "主なトピックの要約（60字以内）"
+  }},
   "achievements":  ["完了・解決したこと1", "2"],
   "inProgress":    ["進行中の課題1", "2"],
   "decisions":     ["下した意思決定1", "2"],
@@ -1026,7 +1055,7 @@ JSONのみ返してください。"""
 
     try:
         msg = client.messages.create(
-            model='claude-sonnet-4-6', max_tokens=2000,
+            model='claude-sonnet-4-6', max_tokens=3000,
             messages=[{'role': 'user', 'content': prompt}]
         )
         text = msg.content[0].text.strip()
@@ -1035,6 +1064,12 @@ JSONのみ返してください。"""
         start, end = text.find('{'), text.rfind('}')
         if start != -1 and end != -1:
             parsed = json.loads(text[start:end+1])
+            # roomTopicsをroomSummaryに統合
+            room_topics = parsed.pop('roomTopics', {})
+            parsed['roomSummary'] = [
+                {'room': r, 'count': c, 'topic': room_topics.get(r, '')}
+                for r, c in top_rooms_by_contact
+            ]
             fallback.update(parsed)
     except Exception as e:
         print(f'[ERROR] CW review Claude: {e}')

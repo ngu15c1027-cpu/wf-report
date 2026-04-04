@@ -1074,10 +1074,20 @@ function renderCwReview(r) {
     + '</div>';
 
   if ((r.roomSummary||[]).length) {
-    html += '<div class="analysis-card" style="margin-bottom:20px"><div class="card-title">📍 ルーム別 To/返信/DM件数 TOP10</div>';
-    html += '<table class="sales-table"><thead><tr><th style="text-align:left">ルーム</th><th>件数</th></tr></thead><tbody>';
-    r.roomSummary.forEach(function(s) {
-      html += '<tr><td style="text-align:left">' + esc(s.room) + '</td><td>' + s.count + '</td></tr>';
+    html += '<div class="analysis-card" style="margin-bottom:20px"><div class="card-title">📋 ルーム別サマリー TOP10</div>';
+    html += '<table class="sales-table"><thead><tr>'
+      + '<th style="text-align:center;width:40px">#</th>'
+      + '<th style="text-align:left">ルーム名</th>'
+      + '<th style="width:56px">件数</th>'
+      + '<th style="text-align:left">主なトピック</th>'
+      + '</tr></thead><tbody>';
+    r.roomSummary.forEach(function(s, i) {
+      html += '<tr>'
+        + '<td style="text-align:center"><div style="width:28px;height:28px;border-radius:50%;background:var(--primary);color:white;font-size:12px;font-weight:800;display:inline-flex;align-items:center;justify-content:center">' + (i+1) + '</div></td>'
+        + '<td style="text-align:left;font-weight:700">' + esc(s.room) + '</td>'
+        + '<td style="font-weight:800;color:var(--primary)">' + s.count + '</td>'
+        + '<td style="text-align:left;color:var(--text-light);font-size:12px">' + esc(s.topic||'') + '</td>'
+        + '</tr>';
     });
     html += '</tbody></table></div>';
   }
