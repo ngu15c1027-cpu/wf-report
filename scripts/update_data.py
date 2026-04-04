@@ -410,12 +410,14 @@ def list_cw_rooms(token: str) -> list:
         return []
 
 
-def fetch_today_cw_review_msgs(token1: str, token2: str, target_date: datetime) -> dict:
-    """くまお/YutoKatoの全ルームから当日メッセージを並列収集
+def fetch_today_cw_review_msgs(token1: str, token2: str, target_date: datetime,
+                               days: int = 2) -> dict:
+    """くまお/YutoKatoの全ルームから指定日数分のメッセージを並列収集
 
     - TOKEN_1 (YutoKato, ~79室): 全室対象
     - TOKEN_2 (くまお, ~2600室): スキップ条件でフィルタ後100室まで
-    Returns: {room_name: [msg_dict, ...]}  当日メッセージがあったルームのみ
+    - target_date: 対象期間の最終日（この日とその前日×(days-1)分を取得）
+    Returns: {room_name: [msg_dict, ...]}  対象期間のメッセージがあったルームのみ
     """
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -424,11 +426,12 @@ def fetch_today_cw_review_msgs(token1: str, token2: str, target_date: datetime) 
     MAX_KUMAO_ROOMS   = 100
     MAX_WORKERS       = 8   # 並列スレッド数（レート制限に配慮）
 
-    # 当日のJST日付範囲
-    day_start = target_date.replace(hour=0, minute=0, second=0, microsecond=0)
-    day_end   = target_date.replace(hour=23, minute=59, second=59, microsecond=999999)
-    ts_start  = int(day_start.timestamp())
-    ts_end    = int(day_end.timestamp())
+    # 対象期間: target_date の days 日前 00:00 〜 target_date の 23:59:59
+    period_start = (target_date - timedelta(days=days - 1)).replace(
+        hour=0, minute=0, second=0, microsecond=0)
+    period_end   = target_date.replace(hour=23, minute=59, second=59, microsecond=999999)
+    ts_start  = int(period_start.timestamp())
+    ts_end    = int(period_end.timestamp())
 
     def _fetch_room_msgs(token, room_id, room_name):
         """指定ルームの当日メッセージを取得（なければ None）"""
@@ -897,13 +900,28 @@ def fetch_logistics_news(min_items: int = 5, max_items: int = 8, max_age_days: i
 # ============================================================
 # ⑤ Chatwork振り返り（くまお/YutoKato発言分析）
 # ============================================================
-def build_cw_review(raw_msgs_by_room: dict, month_str: str) -> dict:
-    """くまお/YutoKatoの発言を収集しClaudeで振り返り分析"""
+def build_cw_review(raw_msgs_by_room: dict, month_str: str,
+                    yesterday_date: datetime = None) -> dict:
+    """くまお/YutoKatoの発言を収集しClaudeで振り返り分析
+
+    yesterday_date: 活動時刻（earliest/latest）の基準日。
+                    指定された場合、その日のメッセージのみで活動時刻を算出する。
+                    未指定の場合は全期間の最初・最後を使用。
+    """
     client = anthropic.Anthropic(api_key=CLAUDE_API_KEY)
 
-    my_messages      = []  # 自分の発言
+    my_messages      = []  # 自分の発言（全期間）
     received_total   = 0   # 受信メッセージ数（自分以外）
     room_counts      = {}  # ルーム別メッセージ数（全メッセージ）
+
+    # 活動時刻計算用の前日日付範囲
+    if yesterday_date:
+        yd_start = int(yesterday_date.replace(hour=0,  minute=0,  second=0,  microsecond=0).timestamp())
+        yd_end   = int(yesterday_date.replace(hour=23, minute=59, second=59, microsecond=999999).timestamp())
+    else:
+        yd_start = yd_end = None
+
+    my_msgs_yesterday = []  # 前日のみの自分の発言（活動時刻用）
 
     for room_name, msgs in raw_msgs_by_room.items():
         for msg in msgs:
@@ -911,18 +929,23 @@ def build_cw_review(raw_msgs_by_room: dict, month_str: str) -> dict:
             body   = sanitize(msg.get('body', '').strip())
             if not body:
                 continue
-            dt = datetime.fromtimestamp(msg.get('send_time', 0), tz=JST)
+            dt       = datetime.fromtimestamp(msg.get('send_time', 0), tz=JST)
+            send_ts  = msg.get('send_time', 0)
             room_counts[room_name] = room_counts.get(room_name, 0) + 1
             if acc_id in CW_REVIEW_IDS:
                 my_messages.append({'room': room_name, 'dt': dt, 'body': body})
+                if yd_start and yd_start <= send_ts <= yd_end:
+                    my_msgs_yesterday.append(dt)
             else:
                 received_total += 1
 
     total = len(my_messages)
-    if my_messages:
-        dts      = [m['dt'] for m in my_messages]
-        earliest = min(dts).strftime('%H:%M')
-        latest   = max(dts).strftime('%H:%M')
+
+    # 活動時刻は前日のメッセージのみで計算（未指定時は全期間）
+    time_source = my_msgs_yesterday if my_msgs_yesterday else ([m['dt'] for m in my_messages] if my_messages else [])
+    if time_source:
+        earliest = min(time_source).strftime('%H:%M')
+        latest   = max(time_source).strftime('%H:%M')
     else:
         earliest = latest = '--:--'
 
@@ -1206,11 +1229,11 @@ def main():
     news_logistics = fetch_logistics_news()
     print(f'  経済ニュース: {len(news_economic)}件 / 物流ニュース: {len(news_logistics)}件')
 
-    # 2c. CW振り返り（全ルームから当日メッセージを収集）
-    print('CW振り返り: 全ルームから当日メッセージを収集中...')
-    # 前日（7時実行なので昨日のビジネスデーを振り返る）
+    # 2c. CW振り返り（前日・前々日の2日分を収集）
+    print('CW振り返り: 全ルームから過去2日分メッセージを収集中...')
+    # 前日を基準に2日分（前日・前々日）
     review_date = now - timedelta(days=1)
-    all_room_msgs = fetch_today_cw_review_msgs(CW_TOKEN_1, CW_TOKEN_2, review_date)
+    all_room_msgs = fetch_today_cw_review_msgs(CW_TOKEN_1, CW_TOKEN_2, review_date, days=2)
     # 定義済みCHATWORK_ROOMSのメッセージも統合
     for room_name, msgs in raw_msgs_by_room.items():
         if room_name not in all_room_msgs:
@@ -1218,7 +1241,7 @@ def main():
         else:
             all_room_msgs[room_name] = all_room_msgs[room_name] + msgs
     print('CW振り返り分析中（くまお/YutoKato）...')
-    cw_review = build_cw_review(all_room_msgs, month_str)
+    cw_review = build_cw_review(all_room_msgs, month_str, yesterday_date=review_date)
     print(f'  発言数: {cw_review["totalMessages"]}件 / 受信: {cw_review["receivedMessages"]}件')
 
     # 2d. Googleカレンダー
