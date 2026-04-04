@@ -1056,12 +1056,16 @@ function renderCwReview(r) {
     + '<div class="section-icon">💬</div>'
     + '<h2 class="section-title">Chatwork振り返り（くまお / YutoKato）</h2></div>';
 
+  var activeRooms = r.activeRooms || 0;
+  var totalRooms  = r.totalRooms  || 0;
+  var activePct   = totalRooms > 0 ? Math.round(activeRooms / totalRooms * 100) : 0;
   html += '<div class="metrics">'
     + mkMetric('自分の発言', (r.totalMessages||0) + '件', '全ルーム合計', '')
     + mkMetric('受信メッセージ', (r.receivedMessages||0) + '件', '他者からの発言', '')
-    + mkMetric('アクティブルーム', (r.activeRooms||0) + '室', '', '')
-    + mkMetric('活動開始', r.earliest||'--:--', '', '')
-    + mkMetric('活動終了', r.latest||'--:--', '', '')
+    + mkMetric('入室チャット数', totalRooms + '室', '両アカウント合計', '')
+    + mkMetric('アクティブルーム', activeRooms + '室', '稼働率 ' + activePct + '%', '')
+    + mkMetric('活動開始', r.earliest||'--:--', '前日', '')
+    + mkMetric('活動終了', r.latest||'--:--', '前日', '')
     + '</div>';
 
   if ((r.roomSummary||[]).length) {

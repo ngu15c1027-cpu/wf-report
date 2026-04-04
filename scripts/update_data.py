@@ -498,8 +498,10 @@ def fetch_today_cw_review_msgs(token1: str, token2: str, target_date: datetime,
 
     active = len(result)
     total  = sum(len(v) for v in result.values())
-    print(f'  [CW振り返り] アクティブルーム: {active}室 / 総メッセージ: {total}件')
-    return result
+    # 総入室数: YutoKato全室 + くまおフィルタ前全室（重複を除く概算）
+    total_rooms = len(rooms1) + len(rooms2)
+    print(f'  [CW振り返り] アクティブルーム: {active}室 / 総メッセージ: {total}件 / 総入室数: {total_rooms}室')
+    return result, total_rooms
 
 
 def sanitize(text: str) -> str:
@@ -901,7 +903,7 @@ def fetch_logistics_news(min_items: int = 5, max_items: int = 8, max_age_days: i
 # ⑤ Chatwork振り返り（くまお/YutoKato発言分析）
 # ============================================================
 def build_cw_review(raw_msgs_by_room: dict, month_str: str,
-                    yesterday_date: datetime = None) -> dict:
+                    yesterday_date: datetime = None, total_rooms: int = 0) -> dict:
     """くまお/YutoKatoの発言を収集しClaudeで振り返り分析
 
     yesterday_date: 活動時刻（earliest/latest）の基準日。
@@ -963,6 +965,7 @@ def build_cw_review(raw_msgs_by_room: dict, month_str: str,
         'totalMessages':    total,
         'receivedMessages': received_total,
         'activeRooms':      active_rooms,
+        'totalRooms':       total_rooms,
         'earliest':         earliest,
         'latest':           latest,
         'roomSummary': [{'room': r, 'count': c} for r, c in room_summary],
@@ -1355,7 +1358,7 @@ def main():
     print('CW振り返り: 全ルームから過去2日分メッセージを収集中...')
     # 前日を基準に2日分（前日・前々日）
     review_date = now - timedelta(days=1)
-    all_room_msgs = fetch_today_cw_review_msgs(CW_TOKEN_1, CW_TOKEN_2, review_date, days=2)
+    all_room_msgs, total_cw_rooms = fetch_today_cw_review_msgs(CW_TOKEN_1, CW_TOKEN_2, review_date, days=2)
     # 定義済みCHATWORK_ROOMSのメッセージも日付フィルタして統合
     period_start = int((review_date - timedelta(days=1)).replace(
         hour=0, minute=0, second=0, microsecond=0).timestamp())
@@ -1373,7 +1376,8 @@ def main():
             new_msgs = [m for m in filtered if m.get('message_id') not in existing_ids]
             all_room_msgs[room_name] = all_room_msgs[room_name] + new_msgs
     print('CW振り返り分析中（くまお/YutoKato）...')
-    cw_review = build_cw_review(all_room_msgs, month_str, yesterday_date=review_date)
+    cw_review = build_cw_review(all_room_msgs, month_str, yesterday_date=review_date,
+                                total_rooms=total_cw_rooms)
     print(f'  発言数: {cw_review["totalMessages"]}件 / 受信: {cw_review["receivedMessages"]}件')
 
     # 2d. Googleカレンダー
