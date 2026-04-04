@@ -914,7 +914,10 @@ def build_cw_review(raw_msgs_by_room: dict, month_str: str,
 
     my_messages      = []  # 自分の発言（全期間）
     received_total   = 0   # 受信メッセージ数（自分以外）
-    room_counts      = {}  # ルーム別メッセージ数（全メッセージ）
+    room_counts      = {}  # ルーム別メッセージ数（自分へのTo/返信 or DM）
+
+    # 自分のaccount_idパターン（Toメンション検出用）
+    my_id_patterns = [f'[To:{aid}]' for aid in CW_REVIEW_IDS]
 
     # 活動時刻計算用の前日日付範囲
     if yesterday_date:
@@ -926,33 +929,48 @@ def build_cw_review(raw_msgs_by_room: dict, month_str: str,
     my_msgs_yesterday = []  # 前日のみの自分の発言（活動時刻用）
 
     for room_name, msgs in raw_msgs_by_room.items():
+        # DMルームかどうか判定（ルーム名だけでは判定できないのでメッセージで代用）
+        is_dm = any(m.get('type') == 'direct' for m in msgs) if msgs else False
+
         for msg in msgs:
-            acc_id = msg.get('account', {}).get('account_id', 0)
-            body   = sanitize(msg.get('body', '').strip())
+            acc_id  = msg.get('account', {}).get('account_id', 0)
+            body    = sanitize(msg.get('body', '').strip())
             if not body:
                 continue
-            dt       = datetime.fromtimestamp(msg.get('send_time', 0), tz=JST)
-            send_ts  = msg.get('send_time', 0)
-            room_counts[room_name] = room_counts.get(room_name, 0) + 1
+            dt      = datetime.fromtimestamp(msg.get('send_time', 0), tz=JST)
+            send_ts = msg.get('send_time', 0)
+
             if acc_id in CW_REVIEW_IDS:
+                # 自分の発言
                 my_messages.append({'room': room_name, 'dt': dt, 'body': body})
                 if yd_start and yd_start <= send_ts <= yd_end:
                     my_msgs_yesterday.append(dt)
             else:
+                # 他者の発言：自分へのTo or 返信(Reply) or DM のみカウント
                 received_total += 1
+                has_to_me  = any(pat in body for pat in my_id_patterns)
+                has_reply  = '[Reply mid=' in body
+                if has_to_me or has_reply or is_dm:
+                    room_counts[room_name] = room_counts.get(room_name, 0) + 1
 
     total = len(my_messages)
 
     # 活動時刻は前日のメッセージのみで計算（未指定時は全期間）
     time_source = my_msgs_yesterday if my_msgs_yesterday else ([m['dt'] for m in my_messages] if my_messages else [])
     if time_source:
-        earliest = min(time_source).strftime('%H:%M')
-        latest   = max(time_source).strftime('%H:%M')
+        earliest_dt = min(time_source)
+        latest_dt   = max(time_source)
+        earliest    = earliest_dt.strftime('%H:%M')
+        latest      = latest_dt.strftime('%H:%M')
+        # 総稼働時間（分）
+        active_minutes = int((latest_dt - earliest_dt).total_seconds() / 60)
+        active_hours   = f'{active_minutes // 60}時間{active_minutes % 60}分'
     else:
         earliest = latest = '--:--'
+        active_hours = '--'
 
     room_summary = sorted(room_counts.items(), key=lambda x: -x[1])[:10]
-    active_rooms = len(room_counts)
+    active_rooms = len([r for r, msgs in raw_msgs_by_room.items() if msgs])
 
     # Claude分析用テキスト（直近100件）
     recent = sorted(my_messages, key=lambda m: m['dt'])[-100:]
@@ -968,6 +986,7 @@ def build_cw_review(raw_msgs_by_room: dict, month_str: str,
         'totalRooms':       total_rooms,
         'earliest':         earliest,
         'latest':           latest,
+        'activeHours':      active_hours,
         'roomSummary': [{'room': r, 'count': c} for r, c in room_summary],
         'achievements': [], 'inProgress': [], 'decisions': [],
         'carryOver': [], 'qualityAlerts': [], 'qualityNote': '分析データなし',
