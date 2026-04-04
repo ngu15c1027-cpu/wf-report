@@ -971,8 +971,31 @@ function renderNews(news) {
     }
     html += '</div>';
   }
-  newsSection('経済ニュース', '📊', news.economic,  '#2563eb');
-  newsSection('物流ニュース', '🚚', news.logistics, '#f97316');
+  // ── 株価指数 ──
+  var mi = news.marketIndices || {};
+  if (mi.nikkei || mi.sp500 || mi.usdjpy) {
+    html += '<div class="section"><div class="section-header">'
+      + '<div class="section-icon" style="background:#16a34a">📈</div>'
+      + '<h2 class="section-title">株価・為替</h2></div>';
+    html += '<div class="metrics">';
+    function mkMarket(label, d) {
+      if (!d) return '';
+      var clr  = d.up ? 'var(--success)' : 'var(--danger)';
+      var sign = d.up ? '+' : '';
+      return '<div class="metric">'
+        + '<div class="mlabel">' + label + '</div>'
+        + '<div class="mvalue" style="color:' + clr + '">' + (d.price||0).toLocaleString() + '</div>'
+        + '<div class="msub" style="color:' + clr + '">' + sign + (d.change||0).toLocaleString() + '（' + sign + (d.pct||0) + '%）</div>'
+        + '</div>';
+    }
+    html += mkMarket('日経平均株価', mi.nikkei);
+    html += mkMarket('S&P500種', mi.sp500);
+    html += mkMarket('ドル・円', mi.usdjpy);
+    html += '</div></div>';
+  }
+
+  newsSection('経済ニュース（日本経済新聞）', '📰', news.economic,  '#2563eb');
+  newsSection('物流ニュース（物流ウィークリー）', '🚚', news.logistics, '#f97316');
   document.getElementById('newsContent').innerHTML = html;
 }
 

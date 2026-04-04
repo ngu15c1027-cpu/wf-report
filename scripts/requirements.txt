@@ -2,3 +2,5 @@ anthropic>=0.30.0
 requests>=2.31.0
 cryptography>=42.0.0
 icalendar>=5.0.0
+yfinance>=0.2.40
+beautifulsoup4>=4.12.0

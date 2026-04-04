@@ -719,6 +719,129 @@ def fetch_news(query: str, max_items: int = 8, max_age_days: int = 30) -> list:
         return []
 
 
+def fetch_market_indices() -> dict:
+    """yfinanceで日経平均・S&P500・ドル円を取得"""
+    try:
+        import yfinance as yf
+    except ImportError:
+        print('[WARN] yfinance未インストール → 株価スキップ')
+        return {}
+
+    symbols = {
+        'nikkei':  '^N225',
+        'sp500':   '^GSPC',
+        'usdjpy':  'USDJPY=X',
+    }
+    result = {}
+    for key, ticker in symbols.items():
+        try:
+            t    = yf.Ticker(ticker)
+            info = t.fast_info
+            price  = round(float(info.last_price), 2)
+            prev   = round(float(info.previous_close), 2)
+            change = round(price - prev, 2)
+            pct    = round(change / prev * 100, 2) if prev else 0.0
+            result[key] = {
+                'price':  price,
+                'change': change,
+                'pct':    pct,
+                'up':     change >= 0,
+            }
+        except Exception as e:
+            print(f'[WARN] yfinance {ticker}: {e}')
+    return result
+
+
+def fetch_nikkei_news(max_items: int = 8, max_age_days: int = 30) -> list:
+    """日本経済新聞トップページから記事を取得（JSハイドレーションJSONをパース）"""
+    try:
+        from bs4 import BeautifulSoup
+        from email.utils import parsedate_to_datetime
+    except ImportError:
+        print('[WARN] beautifulsoup4未インストール → 日経ニューススキップ')
+        return []
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=max_age_days)
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+        'Accept-Language': 'ja,en;q=0.9',
+    }
+    try:
+        resp = requests.get('https://www.nikkei.com/', headers=headers, timeout=20)
+        if resp.status_code != 200:
+            print(f'[WARN] nikkei.com HTTP {resp.status_code}')
+            return []
+        soup = BeautifulSoup(resp.text, 'html.parser')
+
+        # ハイドレーションJSONを探す
+        script = soup.find('script', {'id': 'js-hydration-kstate'})
+        if script and script.string:
+            data = json.loads(script.string)
+            # 記事リストを再帰的に探す
+            articles = []
+            def _extract(obj):
+                if isinstance(obj, dict):
+                    title = obj.get('topTitleWeb') or obj.get('title', '')
+                    href  = obj.get('href', '')
+                    pub   = obj.get('publishedAt', '')
+                    if title and href and href.startswith('/article/'):
+                        articles.append({
+                            'title':   title.strip(),
+                            'link':    'https://www.nikkei.com' + href,
+                            'pubDate': pub,
+                            'source':  '日本経済新聞',
+                        })
+                    for v in obj.values():
+                        _extract(v)
+                elif isinstance(obj, list):
+                    for v in obj:
+                        _extract(v)
+            _extract(data)
+
+            # 日付フィルタ・重複除去
+            seen, filtered = set(), []
+            for a in articles:
+                if a['link'] in seen:
+                    continue
+                seen.add(a['link'])
+                pub = a.get('pubDate', '')
+                if pub:
+                    try:
+                        pub_dt = datetime.fromisoformat(pub.replace('Z', '+00:00'))
+                        if pub_dt < cutoff:
+                            continue
+                    except Exception:
+                        pass
+                filtered.append(a)
+                if len(filtered) >= max_items:
+                    break
+            if filtered:
+                return filtered
+
+        # フォールバック: <a>タグから記事URLを収集
+        items, seen = [], set()
+        for a in soup.find_all('a', href=True):
+            href = a['href']
+            if '/article/' not in href:
+                continue
+            if not href.startswith('http'):
+                href = 'https://www.nikkei.com' + href
+            if href in seen:
+                continue
+            seen.add(href)
+            title = a.get_text(strip=True)
+            if len(title) < 10:
+                continue
+            items.append({'title': title, 'link': href, 'pubDate': '', 'source': '日本経済新聞'})
+            if len(items) >= max_items:
+                break
+        return items
+
+    except Exception as e:
+        print(f'[ERROR] fetch_nikkei_news: {e}')
+        return []
+
+
 def fetch_logistics_news(min_items: int = 5, max_items: int = 8, max_age_days: int = 30) -> list:
     """物流ウィークリー(weekly-net.co.jp)のRSSから物流ニュースを取得。
     足りない分はGoogle News RSSで補完する。
@@ -1074,7 +1197,12 @@ def main():
 
     # 2b. ニュース取得
     print('ニュース取得中...')
-    news_economic  = fetch_news('日本 経済 ビジネス')
+    market_indices = fetch_market_indices()
+    print(f'  株価指数: {list(market_indices.keys())}')
+    news_economic  = fetch_nikkei_news()
+    if len(news_economic) < 3:
+        print(f'  日経スクレイピング {len(news_economic)}件 → Google Newsで補完')
+        news_economic = fetch_news('日本 経済 ビジネス')
     news_logistics = fetch_logistics_news()
     print(f'  経済ニュース: {len(news_economic)}件 / 物流ニュース: {len(news_logistics)}件')
 
@@ -1129,8 +1257,9 @@ def main():
         'actionPlans':         analysis.get('actionPlans', {'month1': [], 'month3': [], 'month6': []}),
         'overallStaffStatus':  analysis.get('overallStaffStatus', []),
         'news': {
-            'economic':  news_economic,
-            'logistics': news_logistics,
+            'marketIndices': market_indices,
+            'economic':      news_economic,
+            'logistics':     news_logistics,
         },
         'cwReview':  cw_review,
         'calendar':  calendar_data,
