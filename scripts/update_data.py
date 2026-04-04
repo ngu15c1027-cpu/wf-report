@@ -719,6 +719,58 @@ def fetch_news(query: str, max_items: int = 8, max_age_days: int = 30) -> list:
         return []
 
 
+def fetch_logistics_news(min_items: int = 5, max_items: int = 8, max_age_days: int = 30) -> list:
+    """物流ウィークリー(weekly-net.co.jp)のRSSから物流ニュースを取得。
+    足りない分はGoogle News RSSで補完する。
+    """
+    from email.utils import parsedate_to_datetime
+    cutoff = datetime.now(timezone.utc) - timedelta(days=max_age_days)
+
+    def _parse_rss(url, limit):
+        items = []
+        try:
+            resp = requests.get(url, timeout=20, headers={'User-Agent': 'Mozilla/5.0'})
+            if resp.status_code != 200:
+                return items
+            root = ET.fromstring(resp.content)
+            for item in root.findall('.//item'):
+                if len(items) >= limit:
+                    break
+                title = item.findtext('title', '').strip()
+                link  = item.findtext('link', '').strip()
+                pub   = item.findtext('pubDate', '')
+                src   = item.findtext('source', '') or '物流ウィークリー'
+                if not title:
+                    continue
+                # バックナンバー（号数ページ）は除外
+                if '/backnumber/' in link:
+                    continue
+                if pub:
+                    try:
+                        pub_dt = parsedate_to_datetime(pub)
+                        if pub_dt < cutoff:
+                            continue
+                    except Exception:
+                        pass
+                items.append({'title': title, 'link': link, 'pubDate': pub, 'source': src})
+        except Exception as e:
+            print(f'[WARN] _parse_rss({url}): {e}')
+        return items
+
+    # まず物流ウィークリーRSSから取得
+    items = _parse_rss('https://weekly-net.co.jp/feed/', max_items)
+    print(f'  物流ウィークリー: {len(items)}件')
+
+    # 不足分をGoogle Newsで補完
+    if len(items) < min_items:
+        need = max_items - len(items)
+        supplement = fetch_news('物流 配送 ドライバー 運送', max_items=need, max_age_days=max_age_days)
+        items = items + supplement
+        print(f'  Google News補完後: {len(items)}件')
+
+    return items[:max_items]
+
+
 # ============================================================
 # ⑤ Chatwork振り返り（くまお/YutoKato発言分析）
 # ============================================================
@@ -1023,7 +1075,7 @@ def main():
     # 2b. ニュース取得
     print('ニュース取得中...')
     news_economic  = fetch_news('日本 経済 ビジネス')
-    news_logistics = fetch_news('物流 配送 ドライバー 運送')
+    news_logistics = fetch_logistics_news()
     print(f'  経済ニュース: {len(news_economic)}件 / 物流ニュース: {len(news_logistics)}件')
 
     # 2c. CW振り返り（全ルームから当日メッセージを収集）
