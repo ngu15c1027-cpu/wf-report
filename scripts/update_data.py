@@ -1356,12 +1356,22 @@ def main():
     # 前日を基準に2日分（前日・前々日）
     review_date = now - timedelta(days=1)
     all_room_msgs = fetch_today_cw_review_msgs(CW_TOKEN_1, CW_TOKEN_2, review_date, days=2)
-    # 定義済みCHATWORK_ROOMSのメッセージも統合
+    # 定義済みCHATWORK_ROOMSのメッセージも日付フィルタして統合
+    period_start = int((review_date - timedelta(days=1)).replace(
+        hour=0, minute=0, second=0, microsecond=0).timestamp())
+    period_end   = int(review_date.replace(
+        hour=23, minute=59, second=59, microsecond=999999).timestamp())
     for room_name, msgs in raw_msgs_by_room.items():
+        filtered = [m for m in msgs if period_start <= m.get('send_time', 0) <= period_end]
+        if not filtered:
+            continue
         if room_name not in all_room_msgs:
-            all_room_msgs[room_name] = msgs
+            all_room_msgs[room_name] = filtered
         else:
-            all_room_msgs[room_name] = all_room_msgs[room_name] + msgs
+            # 重複排除（message_idベース）
+            existing_ids = {m.get('message_id') for m in all_room_msgs[room_name]}
+            new_msgs = [m for m in filtered if m.get('message_id') not in existing_ids]
+            all_room_msgs[room_name] = all_room_msgs[room_name] + new_msgs
     print('CW振り返り分析中（くまお/YutoKato）...')
     cw_review = build_cw_review(all_room_msgs, month_str, yesterday_date=review_date)
     print(f'  発言数: {cw_review["totalMessages"]}件 / 受信: {cw_review["receivedMessages"]}件')
