@@ -1249,14 +1249,23 @@ def analyze_mental_management(cw_review: dict, calendar_data: dict,
     past_evts   = [e for e in cal_events if e.get('isPast')]
     cal_summary = f'今後7日の予定: {len(future_evts)}件 / 過去2週間の実績: {len(past_evts)}件'
 
+    # 秘書（飯田ここ）を除いた上位ルーム（マネジメント分析から除外）
+    EXCLUDE_FROM_MENTAL = {'飯田ここ'}
+    top_rooms_filtered = [
+        r for r in room_summary
+        if r['room'] not in EXCLUDE_FROM_MENTAL
+    ]
     top_rooms_txt = '\n'.join(
         f'  {i+1}. {r["room"]}（{r["count"]}件）'
-        for i, r in enumerate(room_summary[:5])
+        for i, r in enumerate(top_rooms_filtered[:5])
     )
 
     prompt = f"""あなたはメンタルヘルスコーチです。以下のデータをもとに、ISFJ型経営者のメンタルマネジメントレポートをJSONで作成してください。
 
 {MBTI_PROFILE}
+
+【注意事項】
+- 「飯田ここ」は専属秘書であり、やりとりが多いのは業務上当然です。分析・言及の対象から除外してください。
 
 【直近のChatwork活動データ（{month_str}）】
 - 自分の発言数: {total_msgs}件
@@ -1265,7 +1274,7 @@ def analyze_mental_management(cw_review: dict, calendar_data: dict,
 - 活動開始: {earliest} / 活動終了: {latest}
 - 深夜発言(22時以降): {'あり ⚠' if late_night else 'なし'}
 - 早朝発言(7時前): {'あり ⚠' if early_morning else 'なし'}
-- 上位ルーム:
+- 上位ルーム（秘書除く）:
 {top_rooms_txt}
 
 【カレンダー】
